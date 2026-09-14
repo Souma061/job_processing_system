@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import express, { type Request, type Response } from "express";
 import fs from "fs";
 import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 import path from "path";
 
 dotenv.config();
@@ -30,10 +31,35 @@ interface Job {
     image: string;
     [key: string]: unknown;
   };
+  workerId?: string;
   createdAt: string;
   updatedAt: string;
 }
 
+// helper function to run the cpu worker in a separate thread
+function runCpuJobOnThread(jobId: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const workerPath = path.resolve("src/cpu-worker.ts");
+    //spawn a new worker thread for the CPU-intensive task
+    const worker = new Worker(workerPath, {
+      workerData: { jobId },
+      execArgv: ["--import", "tsx"],
+    });
+    worker.on("message", (message) => {
+      if (message.status === "completed") {
+        resolve(message);
+      }
+    });
+    worker.on("error", (error) => {
+      reject(error);
+    });
+    worker.on("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Worker stopped with exit code ${code}`));
+      }
+    });
+  });
+}
 // queue to hold jobs
 const jobQueue: Job[] = [];
 //registry holding all jobs for faster lookup by id
@@ -91,6 +117,7 @@ app.post("/jobs", (req: Request, res: Response) => {
       .status(400)
       .json({ error: "Missing required fields: type and image" });
   }
+  
   const job: Job = {
     id: `job-${crypto.randomUUID()}`,
     type,
@@ -119,30 +146,33 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 // the worker loop
-async function processJobs(job: Job): Promise<void> {
+async function processJob(job: Job, workerId: string): Promise<void> {
   job.status = "in-progress";
+  job.workerId = workerId;
   job.updatedAt = new Date().toISOString();
   saveJobToFile(job);
-  console.log(`[Worker] started processing ${job.id}`);
-  //simulate heavy processing with a delay
-  await new Promise((resolve) => setTimeout(resolve, 5000));
+  console.log(`[${workerId}] Started heavy CPU processing for ${job.id}...`);
+  // ofload the heavy CPU processing to a separate thread to avoid blocking the main event loop
+  await runCpuJobOnThread(job.id);
+
   job.status = "completed";
   job.updatedAt = new Date().toISOString();
   saveJobToFile(job);
-  console.log(`[Worker] completed processing ${job.id}`);
+  console.log(`[${workerId}] Finished CPU processing for ${job.id}`);
 }
-async function startWorker(): Promise<void> {
-  console.log("[Worker] Worker started,polling jobs... ");
+
+async function startWorker(workerId: string): Promise<void> {
+  console.log(`[${workerId}] Worker started, polling jobs... `);
   while (true) {
     const job = jobQueue.shift();
     if (job) {
       try {
-        await processJobs(job);
+        await processJob(job, workerId);
       } catch (error) {
         job.status = "failed";
         job.updatedAt = new Date().toISOString();
         saveJobToFile(job);
-        console.error(`[Worker] Error processing job ${job.id}:`, error);
+        console.error(`[${workerId}] Error processing job ${job.id}:`, error);
       }
     } else {
       // if queue is empty, wait for a while before checking again
@@ -154,5 +184,8 @@ async function startWorker(): Promise<void> {
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
   recoverJobsFromFile();
-  startWorker();
+
+  // Spin up two concurrent workers!
+  startWorker("Worker-1");
+  startWorker("Worker-2");
 });
