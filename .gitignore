@@ -4,3 +4,6 @@ dist
 *.log
 data
 learnings.md
+output
+uploads
+logs

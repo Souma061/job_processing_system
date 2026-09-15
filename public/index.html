@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Processing System — Real Image Resizer & Metrics</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #06b6d4;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 2rem 1rem;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 0.25rem;
+    }
+
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+
+    .stat-card .label {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: 0.25rem;
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .panel h2 {
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Upload Drop Zone */
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 2rem 1rem;
+      text-align: center;
+      background: rgba(15, 23, 42, 0.4);
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 1rem;
+      position: relative;
+    }
+
+    .dropzone:hover,
+    .dropzone.dragover {
+      border-color: var(--primary);
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .dropzone input[type="file"] {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .drop-icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .preview-container {
+      display: none;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      background: #0f172a;
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    .preview-img {
+      width: 60px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .preview-meta {
+      flex: 1;
+      font-size: 0.85rem;
+    }
+
+    .preview-name {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .preview-size {
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: background 0.2s;
+      width: 100%;
+    }
+
+    button:hover {
+      background: var(--primary-hover);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .divider {
+      text-align: center;
+      margin: 1rem 0;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      position: relative;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 44%;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .divider::before {
+      left: 0;
+    }
+
+    .divider::after {
+      right: 0;
+    }
+
+    .quick-chips {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .chip {
+      background: #334155;
+      color: #cbd5e1;
+      font-size: 0.8rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip:hover {
+      background: var(--primary);
+      color: white;
+    }
+
+    .alert {
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .alert.success {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid var(--success);
+      color: #6ee7b7;
+      display: block;
+    }
+
+    .alert.info {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid var(--primary);
+      color: #93c5fd;
+      display: block;
+    }
+
+    .alert.error {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--danger);
+      color: #fca5a5;
+      display: block;
+    }
+
+    /* Jobs Table */
+    .table-container {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    th,
+    td {
+      padding: 0.85rem 0.9rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+      background: rgba(15, 23, 42, 0.5);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge.pending {
+      background: rgba(245, 158, 11, 0.2);
+      color: var(--warning);
+      border: 1px solid var(--warning);
+    }
+
+    .badge.in-progress {
+      background: rgba(6, 182, 212, 0.2);
+      color: var(--info);
+      border: 1px solid var(--info);
+      animation: pulse 1.5s infinite;
+    }
+
+    .badge.completed {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--success);
+      border: 1px solid var(--success);
+    }
+
+    .badge.failed {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+      border: 1px solid var(--danger);
+    }
+
+    .thumb-preview {
+      width: 55px;
+      height: 55px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .thumb-preview:hover {
+      transform: scale(2.6);
+      z-index: 10;
+      position: relative;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .worker-tag {
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      background: #334155;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+    }
+
+    .metrics-box {
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+
+    .metrics-original {
+      color: #94a3b8;
+    }
+
+    .metrics-thumb {
+      color: #6ee7b7;
+      font-weight: 600;
+    }
+
+    .metrics-savings {
+      display: inline-block;
+      margin-top: 0.2rem;
+      background: rgba(16, 185, 129, 0.2);
+      color: #10b981;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+    }
+
+    /* Terminal Log Viewer */
+    .terminal {
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.8rem;
+      color: #38bdf8;
+      height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .log-success {
+      color: #4ade80;
+    }
+
+    .log-failed {
+      color: #f87171;
+    }
+
+    .log-prog {
+      color: #38bdf8;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>🖼️ Job Processing Dashboard</h1>
+        <p class="subtitle">Live thumbnail generator with Sharp C++ Worker Threads & Observability Logs</p>
+      </div>
+      <div>
+        <span style="font-size: 0.85rem; color: var(--success); font-weight: 600;">● Live Polling (1.5s)</span>
+      </div>
+    </header>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="label">Queue Depth</div>
+        <div class="value" id="stat-queue">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Total Jobs</div>
+        <div class="value" id="stat-total">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Active Workers</div>
+        <div class="value" style="color: var(--info);">Worker-1 & Worker-2</div>
+      </div>
+    </div>
+
+    <!-- Upload Panel -->
+    <div class="panel">
+      <h2>Upload & Enqueue Real Image</h2>
+
+      <form id="upload-form">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="file-input" accept="image/*" multiple>
+          <span class="drop-icon">📁</span>
+          <p style="font-weight: 600; font-size: 1rem;">Click to select image(s) or drag & drop here</p>
+          <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.3rem;">Supports JPG, PNG, WebP, GIF —
+            Select multiple files at once!</p>
+        </div>
+
+        <div class="preview-container" id="preview-container">
+          <img id="preview-img" class="preview-img" src="" alt="Selected Preview">
+          <div class="preview-meta">
+            <div class="preview-name" id="preview-name">image.jpg</div>
+            <div class="preview-size" id="preview-size">0 KB</div>
+          </div>
+          <button type="button" id="clear-btn"
+            style="width: auto; padding: 0.4rem 0.8rem; background: #334155; font-size: 0.8rem;">Clear</button>
+        </div>
+
+        <button type="submit" id="submit-btn" disabled>Select an Image to Enqueue</button>
+      </form>
+
+      <div class="divider">OR CHOOSE SERVER PRESET</div>
+
+      <div class="quick-chips">
+        <span class="chip" onclick="enqueuePreset('sample.jpg')">⚡ Server sample.jpg (1200x800)</span>
+        <span class="chip" onclick="enqueuePreset('ghost.jpg')">❌ Test Failure (ghost.jpg)</span>
+      </div>
+
+      <div id="submit-alert" class="alert"></div>
+    </div>
+
+    <!-- Live Jobs Table -->
+    <div class="panel">
+      <h2>Processed Jobs & Metrics</h2>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Thumbnail</th>
+              <th>Image File</th>
+              <th>Quality & Size Metrics</th>
+              <th>Worker</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="jobs-tbody">
+            <tr>
+              <td colspan="6" class="empty-state">Loading jobs...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Terminal Log Viewer -->
+    <div class="panel">
+      <h2>
+        <span>📜 System Log File (<code>logs/jobs.log</code>)</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">Auto-appends on disk</span>
+      </h2>
+      <div class="terminal" id="terminal-logs">Connecting to logs...</div>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const dropzone = document.getElementById('dropzone');
+    const previewContainer = document.getElementById('preview-container');
+    const previewImg = document.getElementById('preview-img');
+    const previewName = document.getElementById('preview-name');
+    const previewSize = document.getElementById('preview-size');
+    const clearBtn = document.getElementById('clear-btn');
+    const submitBtn = document.getElementById('submit-btn');
+    const submitAlert = document.getElementById('submit-alert');
+    const uploadForm = document.getElementById('upload-form');
+    const jobsTbody = document.getElementById('jobs-tbody');
+    const statQueue = document.getElementById('stat-queue');
+    const statTotal = document.getElementById('stat-total');
+    const terminalLogs = document.getElementById('terminal-logs');
+
+    let selectedFiles = [];
+
+    // File Selection Handler
+    fileInput.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+      if (files.length === 0) return;
+      setFiles(files);
+    });
+
+    // Drag & Drop Handlers
+    ['dragenter', 'dragover'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+      });
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+      if (files.length > 0) {
+        setFiles(files);
+      }
+    });
+
+    function setFiles(files) {
+      selectedFiles = files;
+      const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+      const formattedTotal = (totalBytes < 1024 * 1024)
+        ? `${(totalBytes / 1024).toFixed(1)} KB`
+        : `${(totalBytes / (1024 * 1024)).toFixed(2)} MB`;
+
+      if (files.length === 1) {
+        previewName.textContent = files[0].name;
+        previewSize.textContent = `${(files[0].size / 1024).toFixed(1)} KB`;
+        submitBtn.textContent = `Enqueue "${files[0].name}" for Thumbnail Processing`;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewImg.src = e.target.result;
+          previewContainer.style.display = 'flex';
+          dropzone.style.display = 'none';
+          submitBtn.disabled = false;
+        };
+        reader.readAsDataURL(files[0]);
+      } else {
+        previewName.textContent = `${files.length} Images Selected`;
+        previewSize.textContent = `Total Size: ${formattedTotal} (${files.map(f => f.name).slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''})`;
+        submitBtn.textContent = `Enqueue ${files.length} Images (Concurrent Batch)`;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewImg.src = e.target.result;
+          previewContainer.style.display = 'flex';
+          dropzone.style.display = 'none';
+          submitBtn.disabled = false;
+        };
+        reader.readAsDataURL(files[0]);
+      }
+    }
+
+    clearBtn.addEventListener('click', () => {
+      selectedFiles = [];
+      fileInput.value = '';
+      previewContainer.style.display = 'none';
+      dropzone.style.display = 'block';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Select Image(s) to Enqueue';
+    });
+
+    function showAlert(text, type = 'info') {
+      submitAlert.textContent = text;
+      submitAlert.className = `alert ${type}`;
+      setTimeout(() => {
+        submitAlert.style.display = 'none';
+      }, 5000);
+    }
+
+    // Submit Real Files (Concurrent batch upload)
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!selectedFiles || selectedFiles.length === 0) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = `Uploading & Enqueuing ${selectedFiles.length} image(s)...`;
+
+      try {
+        const uploadPromises = selectedFiles.map(async (file) => {
+          const formData = new FormData();
+          formData.append('type', 'thumbnail');
+          formData.append('imageFile', file);
+
+          const res = await fetch('/jobs', {
+            method: 'POST',
+            body: formData
+          });
+          return await res.json();
+        });
+
+        const results = await Promise.all(uploadPromises);
+        const createdCount = results.filter(r => r.id).length;
+
+        showAlert(`Successfully enqueued ${createdCount} image(s)! Watch Worker-1 and Worker-2 process them in parallel.`, 'success');
+        clearBtn.click();
+
+        fetchHealth();
+        fetchJobs();
+      } catch (err) {
+        showAlert('Network error communicating with server during batch upload', 'error');
+      } finally {
+        submitBtn.disabled = selectedFiles.length === 0;
+        submitBtn.textContent = selectedFiles.length > 0 ? `Enqueue ${selectedFiles.length} Images` : 'Select Image(s) to Enqueue';
+      }
+    });
+
+    // Enqueue Preset
+    async function enqueuePreset(imageName) {
+      try {
+        const res = await fetch('/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'thumbnail', image: imageName })
+        });
+        const data = await res.json();
+
+        if (res.status === 201) {
+          showAlert(`Job created for server preset "${imageName}": ${data.id}`, 'success');
+        } else if (res.status === 200) {
+          showAlert(`Duplicate detected: Reusing existing job (${data.id})`, 'info');
+        } else {
+          showAlert(data.error || 'Failed to enqueue preset', 'error');
+        }
+        fetchJobs();
+      } catch (err) {
+        showAlert('Network error submitting preset', 'error');
+      }
+    }
+
+    // Poll Health & Stats
+    async function fetchHealth() {
+      try {
+        const res = await fetch('/health');
+        if (res.ok) {
+          const data = await res.json();
+          statQueue.textContent = data.queueDepth ?? 0;
+          statTotal.textContent = data.totalJobs ?? 0;
+        }
+      } catch (_) { }
+    }
+
+    // Poll Jobs List & Render Metrics
+    async function fetchJobs() {
+      try {
+        const res = await fetch('/jobs');
+        if (!res.ok) return;
+
+        const jobs = await res.json();
+        if (!jobs || jobs.length === 0) {
+          jobsTbody.innerHTML = `<tr><td colspan="6" class="empty-state">No jobs found. Upload an image above!</td></tr>`;
+          return;
+        }
+
+        jobsTbody.innerHTML = jobs.map(job => {
+          const thumbHtml = (job.status === 'completed' && job.payload?.thumbnail)
+            ? `<a href="/output/${job.payload.thumbnail}" target="_blank">
+                 <img src="/output/${job.payload.thumbnail}" class="thumb-preview" title="Click to view 150x150 thumbnail" />
+               </a>`
+            : `<span style="color: var(--text-muted); font-size: 0.8rem;">—</span>`;
+
+          const workerHtml = job.workerId
+            ? `<span class="worker-tag">${job.workerId}</span>`
+            : `<span style="color: var(--text-muted); font-size: 0.8rem;">—</span>`;
+
+          const originalName = job.payload?.originalName || job.payload?.image || '—';
+          const createdTime = new Date(job.createdAt).toLocaleTimeString();
+
+          // Format Metrics block
+          let metricsHtml = `<span style="color: var(--text-muted); font-size: 0.8rem;">—</span>`;
+          if (job.payload?.metrics) {
+            const m = job.payload.metrics;
+            const origSize = m.original?.sizeFormatted || m.original?.size || '—';
+            const origDims = (m.original?.width && m.original?.height) ? `${m.original.width}×${m.original.height}` : '—';
+            const thumbSize = m.thumbnail?.sizeFormatted || m.thumbnail?.size || '—';
+            const thumbDims = (m.thumbnail?.width && m.thumbnail?.height) ? `${m.thumbnail.width}×${m.thumbnail.height}` : '150×150';
+            const savings = m.reduction ? `${m.reduction} smaller` : 'Resized';
+            const dur = (m.durationMs !== undefined) ? `in ${m.durationMs}ms` : '';
+
+            metricsHtml = `
+              <div class="metrics-box">
+                <div class="metrics-original"><strong>Original:</strong> ${origSize} (${origDims})</div>
+                <div class="metrics-thumb"><strong>Thumbnail:</strong> ${thumbSize} (${thumbDims})</div>
+                <div><span class="metrics-savings">${savings}</span> <span style="color: var(--text-muted);">${dur}</span></div>
+              </div>
+            `;
+          } else if (job.status === 'in-progress') {
+            metricsHtml = `<span style="color: var(--info); font-size: 0.8rem; font-style: italic;">Crunching Sharp C++ Math...</span>`;
+          } else if (job.status === 'failed') {
+            metricsHtml = `<span style="color: var(--danger); font-size: 0.8rem;">Failed: file not found or invalid format</span>`;
+          }
+
+          return `
+            <tr>
+              <td><span class="badge ${job.status}">${job.status}</span></td>
+              <td>${thumbHtml}</td>
+              <td>
+                <div style="font-weight: 600;">${originalName}</div>
+                <div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">${job.id}</div>
+              </td>
+              <td>${metricsHtml}</td>
+              <td>${workerHtml}</td>
+              <td style="color: var(--text-muted); font-size: 0.8rem;">${createdTime}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        console.error('Failed to fetch jobs:', err);
+      }
+    }
+
+    // Poll Log File
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/logs');
+        if (!res.ok) return;
+        const lines = await res.json();
+        if (!lines || lines.length === 0) {
+          terminalLogs.textContent = 'No log entries yet. Upload an image to generate logs!';
+          return;
+        }
+
+        terminalLogs.innerHTML = lines.map(line => {
+          if (line.includes('[SUCCESS]')) return `<span class="log-success">${line}</span>`;
+          if (line.includes('[FAILED]')) return `<span class="log-failed">${line}</span>`;
+          if (line.includes('[IN-PROGRESS]')) return `<span class="log-prog">${line}</span>`;
+          return `<span>${line}</span>`;
+        }).join('\n');
+
+        // Keep scroll at bottom
+        terminalLogs.scrollTop = terminalLogs.scrollHeight;
+      } catch (_) { }
+    }
+
+    // Initial load and live polling
+    fetchHealth();
+    fetchJobs();
+    fetchLogs();
+
+    setInterval(() => {
+      fetchHealth();
+      fetchJobs();
+      fetchLogs();
+    }, 1500);
+  </script>
+</body>
+
+</html>
