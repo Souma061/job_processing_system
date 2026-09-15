@@ -175,3 +175,26 @@ export async function recoverJobsFromDatabase(): Promise<JobRow[]> {
     client.release();
   }
 }
+
+// 10. Delete specific jobs by their IDs and return their thumbnail keys for cleanup
+export async function deleteJobsByIds(ids: string[]): Promise<string[]> {
+  if (!ids || ids.length === 0) return [];
+  const query = `
+    DELETE FROM jobs
+    WHERE id = ANY($1::text[])
+    RETURNING thumbnail;
+  `;
+  const res = await pool.query(query, [ids]);
+  return res.rows.map((r) => r.thumbnail).filter(Boolean);
+}
+
+// 11. Delete all completed and failed jobs, returning thumbnail keys
+export async function deleteAllFinishedJobs(): Promise<string[]> {
+  const query = `
+    DELETE FROM jobs
+    WHERE status IN ('completed', 'failed')
+    RETURNING thumbnail;
+  `;
+  const res = await pool.query(query);
+  return res.rows.map((r) => r.thumbnail).filter(Boolean);
+}

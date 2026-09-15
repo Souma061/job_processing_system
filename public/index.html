@@ -242,6 +242,55 @@
       color: white;
     }
 
+    .table-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+      gap: 0.5rem;
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: auto;
+      transition: background 0.2s;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .btn-secondary {
+      background: #334155;
+      color: #e2e8f0;
+      border: none;
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: auto;
+      transition: background 0.2s;
+    }
+
+    .btn-secondary:hover {
+      background: #475569;
+    }
+
+    .select-checkbox {
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--primary);
+    }
+
     .alert {
       padding: 0.75rem 1rem;
       border-radius: 6px;
@@ -494,11 +543,21 @@
 
     <!-- Live Jobs Table -->
     <div class="panel">
-      <h2>Processed Jobs & Metrics</h2>
+      <div class="table-actions">
+        <h2>Processed Jobs & Metrics</h2>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button type="button" class="btn-secondary" id="btn-delete-selected" onclick="deleteSelectedJobs()"
+            style="display: none;">🗑️ Delete Selected (<span id="selected-count">0</span>)</button>
+          <button type="button" class="btn-danger" id="btn-clear-all" onclick="clearAllJobs()">⚠️ Clear All
+            Jobs</button>
+        </div>
+      </div>
       <div class="table-container">
         <table>
           <thead>
             <tr>
+              <th style="width: 32px;"><input type="checkbox" id="select-all-chk" class="select-checkbox"
+                  onchange="toggleSelectAll(this)"></th>
               <th>Status</th>
               <th>Thumbnail</th>
               <th>Image File</th>
@@ -509,7 +568,7 @@
           </thead>
           <tbody id="jobs-tbody">
             <tr>
-              <td colspan="6" class="empty-state">Loading jobs...</td>
+              <td colspan="7" class="empty-state">Loading jobs...</td>
             </tr>
           </tbody>
         </table>
@@ -698,6 +757,92 @@
       } catch (_) { }
     }
 
+    // Cache signed URLs by job ID to prevent image blinking during polling
+    const signedUrlCache = new Map();
+    const selectedJobIds = new Set();
+
+    function updateSelectedUi() {
+      const count = selectedJobIds.size;
+      const btn = document.getElementById('btn-delete-selected');
+      const countSpan = document.getElementById('selected-count');
+      if (btn && countSpan) {
+        countSpan.textContent = count;
+        btn.style.display = count > 0 ? 'inline-block' : 'none';
+      }
+    }
+
+    function toggleSelectAll(masterCheckbox) {
+      const checkboxes = document.querySelectorAll('.job-chk');
+      checkboxes.forEach(cb => {
+        cb.checked = masterCheckbox.checked;
+        if (masterCheckbox.checked) {
+          selectedJobIds.add(cb.value);
+        } else {
+          selectedJobIds.delete(cb.value);
+        }
+      });
+      updateSelectedUi();
+    }
+
+    function toggleJobSelection(checkbox, jobId) {
+      if (checkbox.checked) {
+        selectedJobIds.add(jobId);
+      } else {
+        selectedJobIds.delete(jobId);
+      }
+      const selectAll = document.getElementById('select-all-chk');
+      if (selectAll) {
+        const checkboxes = document.querySelectorAll('.job-chk');
+        selectAll.checked = checkboxes.length > 0 && Array.from(checkboxes).every(c => c.checked);
+      }
+      updateSelectedUi();
+    }
+
+    async function deleteSelectedJobs() {
+      const ids = Array.from(selectedJobIds);
+      if (ids.length === 0) return;
+      if (!confirm(`Delete ${ids.length} selected job(s)?`)) return;
+
+      try {
+        const res = await fetch('/jobs', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+        if (res.ok) {
+          selectedJobIds.clear();
+          updateSelectedUi();
+          const selectAll = document.getElementById('select-all-chk');
+          if (selectAll) selectAll.checked = false;
+          fetchJobs();
+          fetchHealth();
+        } else {
+          alert('Failed to delete selected jobs.');
+        }
+      } catch (err) {
+        console.error('Delete error:', err);
+      }
+    }
+
+    async function clearAllJobs() {
+      if (!confirm('Are you sure you want to clear ALL finished jobs?')) return;
+      try {
+        const res = await fetch('/jobs', { method: 'DELETE' });
+        if (res.ok) {
+          selectedJobIds.clear();
+          updateSelectedUi();
+          const selectAll = document.getElementById('select-all-chk');
+          if (selectAll) selectAll.checked = false;
+          fetchJobs();
+          fetchHealth();
+        } else {
+          alert('Failed to clear jobs.');
+        }
+      } catch (err) {
+        console.error('Clear error:', err);
+      }
+    }
+
     // Poll Jobs List & Render Metrics
     async function fetchJobs() {
       try {
@@ -706,14 +851,27 @@
 
         const jobs = await res.json();
         if (!jobs || jobs.length === 0) {
-          jobsTbody.innerHTML = `<tr><td colspan="6" class="empty-state">No jobs found. Upload an image above!</td></tr>`;
+          jobsTbody.innerHTML = `<tr><td colspan="7" class="empty-state">No jobs found. Upload an image above!</td></tr>`;
           return;
         }
 
         jobsTbody.innerHTML = jobs.map(job => {
-          const thumbHtml = (job.status === 'completed' && job.payload?.thumbnail)
-            ? `<a href="/output/${job.payload.thumbnail}" target="_blank">
-                 <img src="/output/${job.payload.thumbnail}" class="thumb-preview" title="Click to view 150x150 thumbnail" />
+          let thumbSrc = '';
+          if (job.payload?.thumbnail) {
+            if (job.payload.thumbnail.startsWith('http')) {
+              // Cache the presigned URL so the browser doesn't re-download it every 1.5s
+              if (!signedUrlCache.has(job.id)) {
+                signedUrlCache.set(job.id, job.payload.thumbnail);
+              }
+              thumbSrc = signedUrlCache.get(job.id);
+            } else {
+              thumbSrc = `/output/${job.payload.thumbnail}`;
+            }
+          }
+
+          const thumbHtml = (job.status === 'completed' && thumbSrc)
+            ? `<a href="${thumbSrc}" target="_blank">
+                 <img src="${thumbSrc}" class="thumb-preview" title="View S3 Thumbnail" />
                </a>`
             : `<span style="color: var(--text-muted); font-size: 0.8rem;">—</span>`;
 
@@ -748,8 +906,11 @@
             metricsHtml = `<span style="color: var(--danger); font-size: 0.8rem;">Failed: file not found or invalid format</span>`;
           }
 
+          const isChecked = selectedJobIds.has(job.id) ? 'checked' : '';
+
           return `
             <tr>
+              <td><input type="checkbox" class="select-checkbox job-chk" value="${job.id}" ${isChecked} onchange="toggleJobSelection(this, '${job.id}')"></td>
               <td><span class="badge ${job.status}">${job.status}</span></td>
               <td>${thumbHtml}</td>
               <td>
@@ -766,6 +927,7 @@
         console.error('Failed to fetch jobs:', err);
       }
     }
+
 
     // Poll Log File
     async function fetchLogs() {

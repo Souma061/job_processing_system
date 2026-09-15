@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import path from "path";
 import {
+  deleteAllFinishedJobs,
+  deleteJobsByIds,
   findInFlightJobByImage,
   getAllJobs,
   getJobById,
@@ -17,6 +19,7 @@ import {
   markJobInProgress,
   recoverJobsFromDatabase,
 } from "./db.js";
+import { deleteFileFromS3, getPresignedDownloadUrl } from "./s3.js";
 
 dotenv.config();
 
@@ -196,25 +199,80 @@ app.post(
 app.get("/jobs", async (_req: Request, res: Response) => {
   try {
     const rows = await getAllJobs();
-    const formatted = rows.map((r) => ({
-      id: r.id,
-      type: r.type,
-      status: r.status,
-      workerId: r.worker_id,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-      payload: {
-        image: r.image,
-        originalName: r.original_name,
-        thumbnail: r.thumbnail,
-        metrics: r.metrics,
-        error: r.error_message,
-      },
-    }));
+    const formatted = await Promise.all(
+      rows.map(async (r) => {
+        let thumbnail = r.thumbnail || null;
+        if (thumbnail) {
+          try {
+            const s3Key = thumbnail.includes("amazonaws.com/")
+              ? thumbnail.split(".com/")[1]
+              : thumbnail;
+
+            if (s3Key.startsWith("thumbnails/")) {
+              thumbnail = await getPresignedDownloadUrl(s3Key, 3600);
+            }
+          } catch (e) {
+            console.error(
+              `[API] Error generating presigned URL for ${thumbnail}:`,
+              e,
+            );
+          }
+          // thumbnail = null;
+        }
+        return {
+          id: r.id,
+          type: r.type,
+          status: r.status,
+          workerId: r.worker_id,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+          payload: {
+            image: r.image,
+            originalName: r.original_name,
+            thumbnail,
+            metrics: r.metrics,
+            error: r.error_message,
+          },
+        };
+      }),
+    );
     return res.status(200).json(formatted);
   } catch (err) {
     console.error("[API] Error fetching jobs from Neon DB:", err);
     return res.status(500).json({ error: "Failed to fetch jobs" });
+  }
+});
+
+// Delete jobs: supports selected array of IDs via body { ids: [...] }, or all finished jobs if no ids provided
+app.delete("/jobs", async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body || {};
+    let deletedThumbnails: string[] = [];
+
+    if (Array.isArray(ids) && ids.length > 0) {
+      deletedThumbnails = await deleteJobsByIds(ids);
+      console.log(`[API] Deleted ${ids.length} selected job(s) from Neon DB`);
+      appendToLogFile(`[DELETE] Deleted ${ids.length} selected job(s)`);
+    } else {
+      deletedThumbnails = await deleteAllFinishedJobs();
+      console.log(`[API] Cleared all finished jobs from Neon DB`);
+      appendToLogFile(`[DELETE] Cleared all finished jobs`);
+    }
+
+    // Also clean up their corresponding objects in S3
+    for (const thumb of deletedThumbnails) {
+      if (thumb && thumb.startsWith("thumbnails/")) {
+        await deleteFileFromS3(thumb);
+      }
+    }
+
+    return res.status(200).json({
+      message: "Jobs deleted successfully",
+      count: deletedThumbnails.length,
+    });
+  } catch (err) {
+    console.error("[API] Error deleting jobs:", err);
+    return res.status(500).json({ error: "Failed to delete jobs" });
   }
 });
 
@@ -241,6 +299,7 @@ app.get("/jobs/:id", async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
+    console.error("[API] Error fetching job from Neon DB:", err);
     return res.status(500).json({ error: "Database error" });
   }
 });
