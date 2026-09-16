@@ -9,17 +9,17 @@ import path from "path";
 import {
   deleteAllFinishedJobs,
   deleteJobsByIds,
-  findInFlightJobByImage,
   getAllJobs,
   getJobById,
   initDb,
-  insertJob,
   markJobCompleted,
-  markJobFailed,
   markJobInProgress,
   recoverJobsFromDatabase,
 } from "./db.js";
+import { imageQueue } from "./queue.js";
+import { rateLimit } from "./ratelimit.js";
 import { deleteFileFromS3, getPresignedDownloadUrl } from "./s3.js";
+import { startBullWorker } from "./worker.js";
 
 dotenv.config();
 
@@ -80,7 +80,10 @@ interface Job {
   createdAt: string;
   updatedAt: string;
 }
-
+const jobRateLimiter = rateLimit({
+  windowMs: 30 * 1000, // 30 seconds
+  maxReqs: 10, // max 10 requests per window
+});
 // helper function to run the cpu worker in a separate thread
 function runCpuJobOnThread(jobId: string, image: string): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -142,6 +145,7 @@ async function recoverJobs(): Promise<void> {
 // enqueue a new job (supports both multipart file upload and JSON)
 app.post(
   "/jobs",
+  // jobRateLimiter, // Apply rate limiting middleware
   upload.single("imageFile"),
   async (req: Request, res: Response) => {
     const image = req.file ? req.file.filename : req.body.image;
@@ -156,42 +160,33 @@ app.post(
     }
 
     try {
-      // 🔍 Deduplication check via SQL in Neon PostgreSQL
-      const existingJob = await findInFlightJobByImage(image);
-      if (existingJob) {
-        console.log(
-          `[API] Duplicate detected for image "${image}". Reusing job ${existingJob.id}`,
-        );
-        return res.status(200).json({
-          message: "Duplicate job detected. Reusing existing job.",
-          id: existingJob.id,
-          status: existingJob.status,
-        });
-      }
-
       const jobId = `job-${crypto.randomUUID()}`;
-      await insertJob(jobId, type, "pending", image, originalName);
 
-      const job: Job = {
-        id: jobId,
-        type,
-        status: "pending",
-        payload: { image, originalName },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+      // 🚀 Push immediately to Redis (BullMQ handles 100,000+ ops/sec in RAM!)
+      await imageQueue.add(
+        "process-image",
+        {
+          id: jobId,
+          type,
+          originalName,
+          image,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          jobId: jobId,
+        },
+      );
 
-      jobQueue.push(job);
       appendToLogFile(
-        `[ENQUEUE] ${image}: New job ${jobId} created in Neon DB`,
+        `[ENQUEUE] ${image}: New job ${jobId} buffered to Redis queue`,
       );
       console.log(
-        `[API] Enqueued new job ${jobId} in Neon DB for image "${image}"`,
+        `[API] Enqueued new job ${jobId} to Redis queue for image "${image}"`,
       );
       return res.status(201).json({ id: jobId, status: "pending", image });
-    } catch (err) {
-      console.error("[API] Failed to insert job into Neon DB:", err);
-      return res.status(500).json({ error: "Database error creating job" });
+    } catch (err: any) {
+      console.error("[API] Failed to enqueue job to Redis:", err);
+      return res.status(500).json({ error: "Queue error creating job" });
     }
   },
 );
@@ -395,39 +390,40 @@ async function processJob(job: Job, workerId: string): Promise<void> {
   }
 }
 
-async function startWorker(workerId: string): Promise<void> {
-  console.log(`[${workerId}] Worker started, polling jobs... `);
-  while (true) {
-    const job = jobQueue.shift();
-    if (job) {
-      try {
-        await processJob(job, workerId);
-      } catch (error: any) {
-        job.status = "failed";
-        job.updatedAt = new Date().toISOString();
-        // Record failure in Neon PostgreSQL
-        await markJobFailed(job.id, error?.message || String(error));
-        console.error(`[${workerId}] Error processing job ${job.id}:`, error);
-        appendToLogFile(
-          `[FAILED] [${workerId}] ${job.id} (${job.payload.image}): ${error?.message || error}`,
-        );
-      }
-    } else {
-      // if queue is empty, wait for a while before checking again
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  }
-}
+// async function startBullWorker(workerId: string): Promise<void> {
+//   console.log(`[${workerId}] Worker started, polling jobs... `);
+//   while (true) {
+//     const job = jobQueue.shift();
+//     if (job) {
+//       try {
+//         await processJob(job, workerId);
+//       } catch (error: any) {
+//         job.status = "failed";
+//         job.updatedAt = new Date().toISOString();
+//         // Record failure in Neon PostgreSQL
+//         await markJobFailed(job.id, error?.message || String(error));
+//         console.error(`[${workerId}] Error processing job ${job.id}:`, error);
+//         appendToLogFile(
+//           `[FAILED] [${workerId}] ${job.id} (${job.payload.image}): ${error?.message || error}`,
+//         );
+//       }
+//     } else {
+//       // if queue is empty, wait for a while before checking again
+//       await new Promise((resolve) => setTimeout(resolve, 1000));
+//     }
+//   }
+// }
 
 app.listen(PORT, async () => {
   console.log(`Server is running on http://localhost:${PORT}`);
-  // 1. Initialize schema in Neon PostgreSQL
-  await initDb();
-  // 2. Recover interrupted/pending jobs from Neon PostgreSQL
-  await recoverJobs();
 
-  // Spin up three concurrent workers!
-  startWorker("Worker-1");
-  startWorker("Worker-2");
+  await initDb();
+  //  Recover interrupted/pending jobs from Neon PostgreSQL
+  // await recoverJobs();
+
+  // // Spin up three concurrent workers!
+  // startWorker("Worker-1");
+  // startWorker("Worker-2");
   // startWorker("Worker-3");
+  startBullWorker(`Worker-${PORT}`);
 });

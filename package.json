@@ -5,6 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "cluster": "powershell -ExecutionPolicy Bypass -File ./start-cluster.ps1 -Workers 3 -BasePort 3000",
+    "cluster:stop": "powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host 'All cluster instances stopped.'\"",
+    "test:load": "tsx src/load-test.ts",
+    "clean": "tsx src/clean-all.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
@@ -14,17 +18,19 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "11.24.0",
+      "version": "12.4.2",
       "onFail": "download"
     }
   },
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@12.4.2",
   "type": "module",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
     "@aws-sdk/s3-request-presigner": "^3.1131.0",
+    "bullmq": "^6.3.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^6.0.0",
     "multer": "^2.3.0",
     "pg": "^8.23.0",
     "sharp": "^0.35.4"
