@@ -3,8 +3,8 @@ import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
 import { pool } from "./db.js";
-import { s3Client } from "./s3.js";
 import { imageQueue } from "./queue.js";
+import { s3Client } from "./s3.js";
 
 dotenv.config();
 
@@ -36,7 +36,6 @@ async function clearAll() {
   } catch (err: any) {
     console.error("❌ [Neon DB] Error clearing jobs table:", err.message);
   }
-
 
   // 2. Clear AWS S3 Bucket
   if (bucketName) {
