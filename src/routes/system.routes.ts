@@ -10,3 +10,4 @@ router.get("/health", healthCheck);
 router.get("/logs", getLogsStream);
 
 export default router;
+

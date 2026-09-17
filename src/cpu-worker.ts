@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import sharp from "sharp";
-import {uploadFiletoS3  } from "./s3.js"
+import { uploadFiletoS3 } from "./s3.js";
 
 async function run(): Promise<void> {
   const { jobId, image } = workerData;
@@ -55,7 +55,7 @@ async function run(): Promise<void> {
     durationMs: procesingDuration,
   };
 
-   //  UPLOAD THUMBNAIL DIRECTLY TO AWS S3
+  //  UPLOAD THUMBNAIL DIRECTLY TO AWS S3
   console.log(`[Thread] Uploading thumbnail to AWS S3...`);
   const s3ThumbnailUrl = await uploadFiletoS3(
     outputPath,
@@ -66,7 +66,10 @@ async function run(): Promise<void> {
 
   //  DELETE LOCAL TEMPORARY FILES TO FREE UP DISK SPACE
   try {
-    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    // Preserve server preset sample.jpg so it can be re-used repeatedly
+    if (image !== "sample.jpg" && fs.existsSync(inputPath)) {
+      fs.unlinkSync(inputPath);
+    }
     if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     console.log(`[Thread] Cleaned up temporary local files.`);
   } catch (cleanErr) {
@@ -77,7 +80,7 @@ async function run(): Promise<void> {
   parentPort?.postMessage({
     status: "completed",
     jobId,
-    outputThumbnail: s3ThumbnailUrl, 
+    outputThumbnail: s3ThumbnailUrl,
     imageLog,
   });
 }

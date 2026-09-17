@@ -9,7 +9,7 @@ import {
 } from "./db.js";
 import { IMAGE_QUEUE_NAME, redisConnection } from "./queue.js";
 
-// Helper: Classify if an error is permanent (do not retry) vs transient (retry)
+// classify error messages to determine if they are permanent (poison pill) or transient (retryable)
 function isPermanentError(errorMessage: string): boolean {
   const permanentPatterns = [
     /not found/i,
@@ -52,13 +52,14 @@ export function startBullWorker(workerName: string) {
         image,
         type = "thumbnail",
         originalName = image,
+        priority = 5, // Default priority is 5 (lower number = higher priority)
       } = job.data;
 
       const attemptNum = job.attemptsMade + 1;
+      const tag = priority === 1 ? "⭐ [VIP]" : "[NORMAL]";
       console.log(
-        `[${workerName}] Claimed job ${jobId} (${image}) [Attempt ${attemptNum}/${job.opts.attempts || 3}]...`,
+        `[${workerName}] ${tag} Claimed job ${jobId} (${image}) [Priority ${priority}]...`,
       );
-
       // 1. Idempotent upsert to Neon DB
       await insertJob(jobId, type, "in-progress", image, originalName);
       await markJobInProgress(jobId, workerName);
@@ -86,7 +87,7 @@ export function startBullWorker(workerName: string) {
           throw new UnrecoverableError(errorMsg);
         }
 
-        // 🔄 Transient Error (Network/S3/DB blip): Let BullMQ retry with exponential backoff!
+        // transient Error (Network/S3/DB blip): Let BullMQ retry with exponential backoff!
         throw err;
       }
     },

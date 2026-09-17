@@ -87,10 +87,12 @@ async function clearAll() {
     if (fs.existsSync(uploadsDir)) {
       const uploadFiles = fs.readdirSync(uploadsDir);
       for (const f of uploadFiles) {
-        fs.unlinkSync(path.join(uploadsDir, f));
+        if (f !== "sample.jpg") {
+          fs.unlinkSync(path.join(uploadsDir, f));
+        }
       }
       console.log(
-        `✅ [Local] Cleared ${uploadFiles.length} files from uploads/`,
+        `✅ [Local] Cleared user files from uploads/ (preserved sample.jpg)`,
       );
     }
 

@@ -22,3 +22,4 @@ router.get("/:id", getJobByIdHandler);
 router.delete("/", deleteJobsHandler);
 
 export default router;
+

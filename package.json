@@ -8,6 +8,7 @@
     "cluster": "powershell -ExecutionPolicy Bypass -File ./start-cluster.ps1 -Workers 3 -BasePort 3000",
     "cluster:stop": "powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host 'All cluster instances stopped.'\"",
     "test:load": "tsx src/load-test.ts",
+    "test:backpressure": "tsx src/backpressure-test.ts",
     "clean": "tsx src/clean-all.ts",
     "lint": "tsc --noEmit",
     "build": "tsc",

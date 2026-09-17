@@ -406,6 +406,20 @@
       border-radius: 4px;
     }
 
+    .vip-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      background: rgba(234, 179, 8, 0.15);
+      color: #facc15;
+      border: 1px solid rgba(234, 179, 8, 0.4);
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      margin-left: 0.4rem;
+    }
+
     .metrics-box {
       font-size: 0.78rem;
       line-height: 1.35;
@@ -492,11 +506,26 @@
     <!-- Stats Bar -->
     <div class="stats-bar">
       <div class="stat-card">
-        <div class="label">Queue Depth</div>
+        <div class="label">Queue Depth (Active+Waiting)</div>
         <div class="value" id="stat-queue">0</div>
       </div>
+      <div class="stat-card" id="card-saturation">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="label">Queue Capacity & Saturation</div>
+          <span id="badge-backpressure"
+            style="font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; background: rgba(16, 185, 129, 0.2); color: #10b981;">🟢
+            NORMAL</span>
+        </div>
+        <div class="value" id="stat-saturation" style="font-size: 1.3rem;">0 / 50 <span
+            style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">(0%)</span></div>
+        <div
+          style="width: 100%; height: 6px; background: #334155; border-radius: 3px; margin-top: 0.5rem; overflow: hidden;">
+          <div id="saturation-bar"
+            style="width: 0%; height: 100%; background: #10b981; transition: width 0.3s, background 0.3s;"></div>
+        </div>
+      </div>
       <div class="stat-card">
-        <div class="label">Total Jobs</div>
+        <div class="label">Total DB Jobs</div>
         <div class="value" id="stat-total">0</div>
       </div>
       <div class="stat-card">
@@ -528,14 +557,26 @@
             style="width: auto; padding: 0.4rem 0.8rem; background: #334155; font-size: 0.8rem;">Clear</button>
         </div>
 
+        <div
+          style="margin: 0.8rem 0; display: flex; align-items: center; justify-content: space-between; background: #0f172a; padding: 0.6rem 0.9rem; border-radius: 6px; border: 1px solid var(--border);">
+          <label style="font-size: 0.85rem; color: #cbd5e1; font-weight: 600;">Queue Priority Tier:</label>
+          <select id="job-priority"
+            style="background: #1e293b; color: white; border: 1px solid var(--border); border-radius: 4px; padding: 0.35rem 0.75rem; font-size: 0.85rem; cursor: pointer;">
+            <option value="5">Normal Priority (Score: 5)</option>
+            <option value="1">⭐ VIP / Expedited (Score: 1 - Cuts Queue!)</option>
+          </select>
+        </div>
+
         <button type="submit" id="submit-btn" disabled>Select an Image to Enqueue</button>
       </form>
 
       <div class="divider">OR CHOOSE SERVER PRESET</div>
 
       <div class="quick-chips">
-        <span class="chip" onclick="enqueuePreset('sample.jpg')">⚡ Server sample.jpg (1200x800)</span>
-        <span class="chip" onclick="enqueuePreset('ghost.jpg')">❌ Test Failure (ghost.jpg)</span>
+        <span class="chip" onclick="enqueuePreset('sample.jpg', 5)">⚡ Server sample.jpg (Normal)</span>
+        <span class="chip" onclick="enqueuePreset('sample.jpg', 1)" style="border: 1px solid #eab308; color: #facc15;">⭐
+          VIP sample.jpg (Priority 1)</span>
+        <span class="chip" onclick="enqueuePreset('ghost.jpg', 5)">❌ Test Failure (ghost.jpg)</span>
       </div>
 
       <div id="submit-alert" class="alert"></div>
@@ -690,6 +731,7 @@
       e.preventDefault();
       if (!selectedFiles || selectedFiles.length === 0) return;
 
+      const priority = document.getElementById('job-priority')?.value || '5';
       submitBtn.disabled = true;
       submitBtn.textContent = `Uploading & Enqueuing ${selectedFiles.length} image(s)...`;
 
@@ -697,6 +739,7 @@
         const uploadPromises = selectedFiles.map(async (file) => {
           const formData = new FormData();
           formData.append('type', 'thumbnail');
+          formData.append('priority', priority);
           formData.append('imageFile', file);
 
           const res = await fetch('/jobs', {
@@ -709,7 +752,8 @@
         const results = await Promise.all(uploadPromises);
         const createdCount = results.filter(r => r.id).length;
 
-        showAlert(`Successfully enqueued ${createdCount} image(s)! Watch Worker-1 and Worker-2 process them in parallel.`, 'success');
+        const isVip = priority === '1' ? ' [⭐ VIP Priority]' : '';
+        showAlert(`Successfully enqueued ${createdCount} image(s)${isVip}!`, 'success');
         clearBtn.click();
 
         fetchHealth();
@@ -723,19 +767,22 @@
     });
 
     // Enqueue Preset
-    async function enqueuePreset(imageName) {
+    async function enqueuePreset(imageName, priority = 5) {
       try {
         const res = await fetch('/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'thumbnail', image: imageName })
+          body: JSON.stringify({ type: 'thumbnail', image: imageName, priority })
         });
         const data = await res.json();
 
         if (res.status === 201) {
-          showAlert(`Job created for server preset "${imageName}": ${data.id}`, 'success');
+          const tag = priority === 1 ? ' [⭐ VIP]' : '';
+          showAlert(`Job created for server preset "${imageName}"${tag}: ${data.id}`, 'success');
         } else if (res.status === 200) {
           showAlert(`Duplicate detected: Reusing existing job (${data.id})`, 'info');
+        } else if (res.status === 503) {
+          showAlert(`🛑 HTTP 503 Backpressure: ${data.message || 'Queue saturated!'}`, 'error');
         } else {
           showAlert(data.error || 'Failed to enqueue preset', 'error');
         }
@@ -753,6 +800,38 @@
           const data = await res.json();
           statQueue.textContent = data.queueDepth ?? 0;
           statTotal.textContent = data.totalJobs ?? 0;
+
+          const waiting = data.waitingCount ?? 0;
+          const maxCap = data.maxCapacity ?? 50;
+          const pct = Math.min(100, Math.round((waiting / maxCap) * 100));
+          const satVal = document.getElementById('stat-saturation');
+          const satBar = document.getElementById('saturation-bar');
+          const bpBadge = document.getElementById('badge-backpressure');
+
+          if (satVal) {
+            satVal.innerHTML = `${waiting} / ${maxCap} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">(${pct}%)</span>`;
+          }
+          if (satBar) {
+            satBar.style.width = `${pct}%`;
+            if (pct >= 100 || data.backpressureActive) {
+              satBar.style.background = '#ef4444';
+            } else if (pct >= 60) {
+              satBar.style.background = '#f59e0b';
+            } else {
+              satBar.style.background = '#10b981';
+            }
+          }
+          if (bpBadge) {
+            if (data.backpressureActive) {
+              bpBadge.textContent = '🛑 BACKPRESSURE ACTIVE';
+              bpBadge.style.background = 'rgba(239, 68, 68, 0.25)';
+              bpBadge.style.color = '#ef4444';
+            } else {
+              bpBadge.textContent = '🟢 NORMAL';
+              bpBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+              bpBadge.style.color = '#10b981';
+            }
+          }
         }
       } catch (_) { }
     }
@@ -907,6 +986,8 @@
           }
 
           const isChecked = selectedJobIds.has(job.id) ? 'checked' : '';
+          const isVip = job.payload?.priority === 1 || job.priority === 1;
+          const vipBadge = isVip ? `<span class="vip-tag">⭐ VIP</span>` : '';
 
           return `
             <tr>
@@ -914,7 +995,7 @@
               <td><span class="badge ${job.status}">${job.status}</span></td>
               <td>${thumbHtml}</td>
               <td>
-                <div style="font-weight: 600;">${originalName}</div>
+                <div style="font-weight: 600; display: flex; align-items: center;">${originalName} ${vipBadge}</div>
                 <div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">${job.id}</div>
               </td>
               <td>${metricsHtml}</td>
