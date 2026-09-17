@@ -55,6 +55,7 @@ export async function initDb(): Promise<void> {
 }
 
 // 2. Insert new job
+// 2. Insert or Upsert job (idempotent: safe for retries)
 export async function insertJob(
   id: string,
   type: string,
@@ -65,6 +66,8 @@ export async function insertJob(
   const query = `
     INSERT INTO jobs (id, type, status, image, original_name, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+    ON CONFLICT (id) DO UPDATE
+    SET updated_at = NOW()
     RETURNING *;
   `;
   const res = await pool.query(query, [
