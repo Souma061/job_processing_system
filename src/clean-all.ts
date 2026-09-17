@@ -47,15 +47,15 @@ async function clearAll() {
       let totalDeletedS3 = 0;
 
       do {
-        const listCmd = new ListObjectsV2Command({
+        const listCmd: ListObjectsV2Command = new ListObjectsV2Command({
           Bucket: bucketName,
           Prefix: "thumbnails/",
           ContinuationToken: continuationToken,
         });
 
-        const listRes = await s3Client.send(listCmd);
-        const objects =
-          listRes.Contents?.map((obj) => ({ Key: obj.Key })) || [];
+        const listRes: any = await s3Client.send(listCmd);
+        const objects: { Key?: string }[] =
+          listRes.Contents?.map((obj: any) => ({ Key: obj.Key })) || [];
 
         if (objects.length > 0) {
           const deleteCmd = new DeleteObjectsCommand({

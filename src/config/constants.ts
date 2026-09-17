@@ -1,12 +1,11 @@
 import fs from "fs";
-import { fileURLToPath } from "node:url";
 import path from "path";
+import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const DATA_DIR =
-  process.env.DATA_DIR || path.join(__dirname, "../../data");
+export const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "../../data");
 export const UPLOADS_DIR = path.resolve("uploads");
 export const OUTPUT_DIR = path.resolve("output");
 export const LOGS_DIR = path.resolve("logs");
@@ -27,3 +26,4 @@ export function appendToLogFile(entry: string): void {
     console.error("[Logger] Failed to write to log file:", err);
   }
 }
+
