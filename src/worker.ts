@@ -43,7 +43,7 @@ function runCpuJobOnThread(jobId: string, image: string): Promise<any> {
 }
 
 // Function to spawn a BullMQ worker
-export function startBullWorker(workerName: string) {
+export function startBullWorker(workerName: string, concurrency: number = 2) {
   const worker = new Worker(
     IMAGE_QUEUE_NAME,
     async (job: Job) => {
@@ -57,8 +57,12 @@ export function startBullWorker(workerName: string) {
 
       const attemptNum = job.attemptsMade + 1;
       const tag = priority === 1 ? "⭐ [VIP]" : "[NORMAL]";
+      const startedAt = Date.now();
+      const enqueuedAt = job.timestamp || job.data.enqueuedAt || startedAt;
+      const queueWaitMs = Math.max(0, startedAt - enqueuedAt);
+
       console.log(
-        `[${workerName}] ${tag} Claimed job ${jobId} (${image}) [Priority ${priority}]...`,
+        `[${workerName}] ${tag} Claimed job ${jobId} (${image}) [Priority ${priority}, Waited in queue: ${queueWaitMs}ms]...`,
       );
       // 1. Idempotent upsert to Neon DB
       await insertJob(jobId, type, "in-progress", image, originalName);
@@ -67,23 +71,59 @@ export function startBullWorker(workerName: string) {
       try {
         // 2. Offload processing to Worker Thread
         const result = await runCpuJobOnThread(jobId, image);
+        const completedAt = Date.now();
+        const processingDurationMs = completedAt - startedAt;
+        const totalLatencyMs = completedAt - enqueuedAt;
 
-        // 3. Mark completed
+        // Phase 12: Comprehensive Telemetry & Latency Metrics
+        const jobMetrics = {
+          timings: {
+            enqueuedAt,
+            startedAt,
+            completedAt,
+            queueWaitMs,
+            processingDurationMs,
+            totalLatencyMs,
+          },
+          priority,
+          attempts: attemptNum,
+          workerId: workerName,
+          image: result?.imageLog || null,
+        };
+
+        // 3. Mark completed with structured telemetry
         await markJobCompleted(
           jobId,
           result?.outputThumbnail || "",
-          result?.metrics || result?.imageLog || null,
+          jobMetrics,
         );
-        console.log(`[${workerName}] Finished job ${jobId} successfully!`);
+        console.log(
+          `[${workerName}] Finished job ${jobId} successfully! (Wait: ${queueWaitMs}ms, Process: ${processingDurationMs}ms, Total: ${totalLatencyMs}ms)`,
+        );
         return result;
       } catch (err: any) {
         const errorMsg = err?.message || String(err);
+        const failedAt = Date.now();
+        const failureMetrics = {
+          timings: {
+            enqueuedAt,
+            startedAt,
+            failedAt,
+            queueWaitMs,
+            durationBeforeFailureMs: failedAt - startedAt,
+          },
+          priority,
+          attempts: attemptNum,
+          workerId: workerName,
+          error: errorMsg,
+        };
 
         // 🚨 Permanent Error (Poison Pill): Abort retries immediately!
         if (isPermanentError(errorMsg)) {
           console.warn(
             `[${workerName}] Permanent error detected on job ${jobId}. Aborting retries: "${errorMsg}"`,
           );
+          await markJobFailed(jobId, `[DLQ] ${errorMsg}`, failureMetrics);
           throw new UnrecoverableError(errorMsg);
         }
 
@@ -93,11 +133,11 @@ export function startBullWorker(workerName: string) {
     },
     {
       connection: redisConnection,
-      concurrency: 2,
+      concurrency,
     },
   );
 
-  // DLQ / Final Failure Handler (Runs when attempts are exhausted or UnrecoverableError thrown)
+  // DLQ / Final Failure Handler (Runs when attempts are exhausted)
   worker.on("failed", async (job, err) => {
     if (job) {
       const isFinalAttempt =
@@ -109,8 +149,21 @@ export function startBullWorker(workerName: string) {
       );
 
       if (isFinalAttempt) {
-        // Quarantined to Dead-Letter State in Database
-        await markJobFailed(job.data.id, `[DLQ] ${err.message}`);
+        const enqueuedAt = job.timestamp || job.data?.enqueuedAt || Date.now();
+        const failedAt = Date.now();
+        const finalMetrics = {
+          timings: {
+            enqueuedAt,
+            failedAt,
+            totalLatencyMs: failedAt - enqueuedAt,
+          },
+          priority: job.data?.priority || 5,
+          attempts: job.attemptsMade,
+          workerId: workerName,
+          error: err.message,
+        };
+        // Quarantined to Dead-Letter State in Database with failure metrics
+        await markJobFailed(job.data.id, `[DLQ] ${err.message}`, finalMetrics);
       }
     }
   });

@@ -68,6 +68,7 @@ export async function createJob(req: Request, res: Response) {
         originalName,
         image,
         priority, // Included in payload for UI rendering
+        enqueuedAt: Date.now(),
         createdAt: new Date().toISOString(),
       },
       {

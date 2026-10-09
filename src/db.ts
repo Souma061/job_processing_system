@@ -111,13 +111,18 @@ export async function markJobCompleted(
 export async function markJobFailed(
   id: string,
   errorMessage: string,
+  metrics: any = null,
 ): Promise<void> {
   const query = `
     UPDATE jobs
-    SET status = 'failed', error_message = $1, updated_at = NOW()
-    WHERE id = $2;
+    SET status = 'failed', error_message = $1, metrics = COALESCE($2, metrics), updated_at = NOW()
+    WHERE id = $3;
   `;
-  await pool.query(query, [errorMessage, id]);
+  await pool.query(query, [
+    errorMessage,
+    metrics ? JSON.stringify(metrics) : null,
+    id,
+  ]);
 }
 
 // 6. Check for in-flight duplicates (pending or in-progress)

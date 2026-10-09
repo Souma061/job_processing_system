@@ -534,6 +534,62 @@
       </div>
     </div>
 
+    <!-- Phase 12: Real-time Telemetry & Latency Metrics Bar -->
+    <div class="panel" style="margin-bottom: 2rem; border: 1px solid #3b82f6; background: rgba(30, 41, 59, 0.7);">
+      <h2 style="color: #60a5fa; font-size: 1.1rem; margin-bottom: 1rem;">
+        <span>📊 Phase 12: System Latency Distributions & Throughput</span>
+        <span id="metric-updated-at" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">Live Polling</span>
+      </h2>
+      <div class="stats-bar" style="margin-bottom: 1rem;">
+        <div class="stat-card">
+          <div class="label">Median Latency (p50)</div>
+          <div class="value" id="metric-p50" style="color: #60a5fa;">0 ms</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">50% of requests faster</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">95th Percentile (p95)</div>
+          <div class="value" id="metric-p95" style="color: #f59e0b;">0 ms</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">SLA / High-load bound</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Tail Latency (p99)</div>
+          <div class="value" id="metric-p99" style="color: #ef4444;">0 ms</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Worst 1% latency</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Throughput & Health</div>
+          <div class="value" id="metric-throughput" style="font-size: 1.3rem; color: #10b981;">0 /min</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+            Error Rate: <span id="metric-error-rate" style="color: var(--text); font-weight: 600;">0%</span>
+          </div>
+        </div>
+      </div>
+      <!-- Timing Split & VIP Impact -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+        <div style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border);">
+          <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Average Timing Split</div>
+          <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.9rem;">
+            <span>⏳ Queue Wait Time:</span>
+            <strong id="metric-avg-wait" style="color: #cbd5e1;">0 ms</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 0.25rem; font-size: 0.9rem;">
+            <span>⚡ Worker Processing:</span>
+            <strong id="metric-avg-process" style="color: #cbd5e1;">0 ms</strong>
+          </div>
+        </div>
+        <div style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border);">
+          <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">VIP Priority Scheduling Impact</div>
+          <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.9rem;">
+            <span>⭐ VIP Wait: <strong id="metric-vip-wait" style="color: #facc15;">0 ms</strong></span>
+            <span>⏳ Normal Wait: <strong id="metric-norm-wait" style="color: #94a3b8;">0 ms</strong></span>
+          </div>
+          <div style="margin-top: 0.35rem; font-size: 0.8rem; color: #10b981;">
+            🚀 VIP Line-Cutting Advantage: <strong id="metric-vip-adv">0 ms</strong> faster
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Upload Panel -->
     <div class="panel">
       <h2>Upload & Enqueue Real Image</h2>
@@ -965,18 +1021,29 @@
           let metricsHtml = `<span style="color: var(--text-muted); font-size: 0.8rem;">—</span>`;
           if (job.payload?.metrics) {
             const m = job.payload.metrics;
-            const origSize = m.original?.sizeFormatted || m.original?.size || '—';
-            const origDims = (m.original?.width && m.original?.height) ? `${m.original.width}×${m.original.height}` : '—';
-            const thumbSize = m.thumbnail?.sizeFormatted || m.thumbnail?.size || '—';
-            const thumbDims = (m.thumbnail?.width && m.thumbnail?.height) ? `${m.thumbnail.width}×${m.thumbnail.height}` : '150×150';
-            const savings = m.reduction ? `${m.reduction} smaller` : 'Resized';
-            const dur = (m.durationMs !== undefined) ? `in ${m.durationMs}ms` : '';
+            const orig = m.image?.original || m.original;
+            const thumb = m.image?.thumbnail || m.thumbnail;
+            const origSize = orig?.sizedFormatted || orig?.sizeFormatted || orig?.size || '—';
+            const origDims = (orig?.width && orig?.height) ? `${orig.width}×${orig.height}` : '—';
+            const thumbSize = thumb?.sizedFormatted || thumb?.sizeFormatted || thumb?.size || '—';
+            const thumbDims = (thumb?.width && thumb?.height) ? `${thumb.width}×${thumb.height}` : '150×150';
+            const savings = (m.image?.reduction || m.reduction) ? `${m.image?.reduction || m.reduction} smaller` : 'Resized';
+
+            let timingsBadge = '';
+            if (m.timings) {
+              timingsBadge = `
+                <div style="margin-top: 0.35rem; font-size: 0.72rem; color: #38bdf8; font-family: monospace; background: rgba(56, 189, 248, 0.1); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.2);">
+                  ⏳ Wait: <strong>${m.timings.queueWaitMs}ms</strong> | ⚡ Proc: <strong>${m.timings.processingDurationMs}ms</strong> | ⏱️ Tot: <strong>${m.timings.totalLatencyMs}ms</strong>
+                </div>
+              `;
+            }
 
             metricsHtml = `
               <div class="metrics-box">
                 <div class="metrics-original"><strong>Original:</strong> ${origSize} (${origDims})</div>
                 <div class="metrics-thumb"><strong>Thumbnail:</strong> ${thumbSize} (${thumbDims})</div>
-                <div><span class="metrics-savings">${savings}</span> <span style="color: var(--text-muted);">${dur}</span></div>
+                <div><span class="metrics-savings">${savings}</span></div>
+                ${timingsBadge}
               </div>
             `;
           } else if (job.status === 'in-progress') {
@@ -1009,6 +1076,38 @@
       }
     }
 
+    // Phase 12: Poll System Telemetry & Latencies
+    async function fetchMetrics() {
+      try {
+        const res = await fetch('/metrics');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const p50El = document.getElementById('metric-p50');
+        const p95El = document.getElementById('metric-p95');
+        const p99El = document.getElementById('metric-p99');
+        const tpEl = document.getElementById('metric-throughput');
+        const errEl = document.getElementById('metric-error-rate');
+        const waitEl = document.getElementById('metric-avg-wait');
+        const procEl = document.getElementById('metric-avg-process');
+        const vipWaitEl = document.getElementById('metric-vip-wait');
+        const normWaitEl = document.getElementById('metric-norm-wait');
+        const vipAdvEl = document.getElementById('metric-vip-adv');
+        const updatedEl = document.getElementById('metric-updated-at');
+
+        if (p50El) p50El.textContent = `${data.latencies?.totalTurnaroundMs?.p50 ?? 0} ms`;
+        if (p95El) p95El.textContent = `${data.latencies?.totalTurnaroundMs?.p95 ?? 0} ms`;
+        if (p99El) p99El.textContent = `${data.latencies?.totalTurnaroundMs?.p99 ?? 0} ms`;
+        if (tpEl) tpEl.textContent = `${data.throughput?.jobsPerMinute ?? 0} /min (${data.throughput?.jobsPerSecond ?? 0}/s)`;
+        if (errEl) errEl.textContent = `${data.counts?.errorRatePct ?? 0}%`;
+        if (waitEl) waitEl.textContent = `${data.latencies?.queueWaitMs?.avg ?? 0} ms (p50: ${data.latencies?.queueWaitMs?.p50 ?? 0}ms)`;
+        if (procEl) procEl.textContent = `${data.latencies?.processingDurationMs?.avg ?? 0} ms`;
+        if (vipWaitEl) vipWaitEl.textContent = `${data.priorityBreakdown?.vip?.avgWaitMs ?? 0} ms (${data.priorityBreakdown?.vip?.count ?? 0} jobs)`;
+        if (normWaitEl) normWaitEl.textContent = `${data.priorityBreakdown?.normal?.avgWaitMs ?? 0} ms (${data.priorityBreakdown?.normal?.count ?? 0} jobs)`;
+        if (vipAdvEl) vipAdvEl.textContent = `${data.priorityBreakdown?.waitAdvantageMs ?? 0} ms`;
+        if (updatedEl) updatedEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch (_) { }
+    }
 
     // Poll Log File
     async function fetchLogs() {
@@ -1035,11 +1134,13 @@
 
     // Initial load and live polling
     fetchHealth();
+    fetchMetrics();
     fetchJobs();
     fetchLogs();
 
     setInterval(() => {
       fetchHealth();
+      fetchMetrics();
       fetchJobs();
       fetchLogs();
     }, 1500);

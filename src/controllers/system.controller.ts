@@ -48,3 +48,17 @@ export function getLogsStream(_req: Request, res: Response) {
     return res.status(500).json({ error: "Failed to read log file" });
   }
 }
+
+// GET /metrics - Telemetry, throughput, and latency percentiles (p50, p95, p99)
+export async function getMetricsHandler(_req: Request, res: Response) {
+  try {
+    const { getSystemMetrics } = await import("../metrics.js");
+    const metrics = await getSystemMetrics();
+    return res.status(200).json(metrics);
+  } catch (err: any) {
+    return res.status(500).json({
+      error: "Failed to compute system metrics",
+      message: err.message,
+    });
+  }
+}
