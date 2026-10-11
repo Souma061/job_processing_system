@@ -52,6 +52,9 @@ export interface SystemMetrics {
     waitAdvantageMs: number;
   };
   timestamp: string;
+  computedAt: string;
+  dataAgeMs: number;
+  isStale: boolean;
 }
 
 /**
@@ -134,6 +137,9 @@ export async function getSystemMetrics(windowHours?: number): Promise<SystemMetr
     },
     priorityBreakdown: dbData.priorityBreakdown,
     timestamp: new Date().toISOString(),
+    computedAt: new Date().toISOString(),
+    dataAgeMs: 0,
+    isStale: false,
   };
 }
 

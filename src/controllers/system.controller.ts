@@ -99,26 +99,38 @@ export function getLogsStream(req: Request, res: Response) {
 // GET /metrics - Telemetry, throughput, and latency percentiles (p50, p95, p99)
 export async function getMetricsHandler(req: Request, res: Response) {
   try {
-    const { getSystemMetrics } = await import("../metrics.js");
     const rawWindow = req.query.windowHours as string | undefined;
-    let windowHours: number | undefined = 24; // Default to 24-hour rolling window for production performance
 
-    if (rawWindow !== undefined) {
-      if (rawWindow.toLowerCase() === "all" || rawWindow === "0") {
-        windowHours = undefined; // No time limit filter
-      } else {
+    // 1. If caller explicitly requested a non-default window, compute ad-hoc
+    if (rawWindow !== undefined && rawWindow !== "24") {
+      const { getSystemMetrics } = await import("../metrics.js");
+      let windowHours: number | undefined = undefined;
+      if (rawWindow.toLowerCase() !== "all" && rawWindow !== "0") {
         const parsed = parseInt(rawWindow, 10);
-        if (!isNaN(parsed) && parsed > 0) {
-          windowHours = parsed;
-        }
+        if (!isNaN(parsed) && parsed > 0) windowHours = parsed;
       }
+      const adHocMetrics = await getSystemMetrics(windowHours);
+      return res.status(200).json(adHocMetrics);
     }
 
-    const metrics = await getSystemMetrics(windowHours);
-    return res.status(200).json(metrics);
+    // 2. High-performance cached metrics (Point 1: Anti-stampede guard)
+    const { getCachedSystemMetrics } = await import(
+      "../services/metrics-refresher.js"
+    );
+    const cachedMetrics = await getCachedSystemMetrics();
+
+    if (!cachedMetrics) {
+      return res.status(503).json({
+        error: "METRICS_UNAVAILABLE",
+        message:
+          "System metrics are initializing or temporarily unavailable. Please retry shortly.",
+      });
+    }
+
+    return res.status(200).json(cachedMetrics);
   } catch (err: any) {
     return res.status(500).json({
-      error: "Failed to compute system metrics",
+      error: "Failed to retrieve system metrics",
       message: err.message,
     });
   }

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import pino from "pino";
 
 export interface LogEntry {
   timestamp?: string;

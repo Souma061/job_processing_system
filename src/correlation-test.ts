@@ -54,7 +54,10 @@ async function runCorrelationTest() {
   const submitted: { user: string; correlationId: string; jobId: string; expected: string }[] = [];
 
   for (const item of testRequests) {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-API-Key": "key_std_prod_123",
+    };
     if (item.customCorrId) {
       headers["X-Correlation-Id"] = item.customCorrId;
     }

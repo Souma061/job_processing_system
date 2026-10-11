@@ -260,6 +260,73 @@ async function runSecurityTestSuite() {
     } catch {}
   }
 
+  // TEST 10: Defend against Log/Script Injection in X-Correlation-Id
+  console.log(
+    "\nTest 10: Defend against Log/Script Injection in X-Correlation-Id",
+  );
+  try {
+    const res = await fetch(`${BASE_URL}/health`, {
+      headers: {
+        "X-Correlation-Id": "poisoned-trace<script>alert(1)</script>",
+      },
+    });
+    const returnedCorrId = res.headers.get("x-correlation-id") || "";
+    assert(
+      "Injected script/illegal characters stripped and rejected",
+      !returnedCorrId.includes("<") && !returnedCorrId.includes(">"),
+    );
+    assert(
+      "Replaced with safe auto-generated UUID starting with 'corr-'",
+      returnedCorrId.startsWith("corr-") && returnedCorrId.length < 64,
+    );
+  } catch (err: any) {
+    assert("Failed injection correlation test", false, err.message);
+  }
+
+  // TEST 11: Defend against Memory Bloat / Oversized X-Correlation-Id
+  console.log(
+    "\nTest 11: Defend against Oversized X-Correlation-Id (>64 chars)",
+  );
+  try {
+    const oversizedId = "A".repeat(2048); // 2KB attack string
+    const res = await fetch(`${BASE_URL}/health`, {
+      headers: {
+        "X-Correlation-Id": oversizedId,
+      },
+    });
+    const returnedCorrId = res.headers.get("x-correlation-id") || "";
+    assert(
+      "Oversized correlation ID rejected and capped to <= 64 chars",
+      returnedCorrId.length <= 64,
+    );
+    assert(
+      "Replaced with safe auto-generated UUID",
+      returnedCorrId.startsWith("corr-"),
+    );
+  } catch (err: any) {
+    assert("Failed oversized correlation test", false, err.message);
+  }
+
+  // TEST 12: Allow legitimate, clean correlation IDs
+  console.log(
+    "\nTest 12: Preserve legitimate client correlation IDs matching whitelist",
+  );
+  try {
+    const cleanId = "valid-client-trace-987";
+    const res = await fetch(`${BASE_URL}/health`, {
+      headers: {
+        "X-Correlation-Id": cleanId,
+      },
+    });
+    const returnedCorrId = res.headers.get("x-correlation-id") || "";
+    assert(
+      "Legitimate correlation ID preserved exactly",
+      returnedCorrId === cleanId,
+    );
+  } catch (err: any) {
+    assert("Failed legitimate correlation test", false, err.message);
+  }
+
   // SUMMARY
   console.log("\n========================================================");
   console.log(

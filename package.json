@@ -13,6 +13,7 @@
     "test:compare-workers": "tsx src/worker-comparison-test.ts",
     "test:correlation": "tsx src/correlation-test.ts",
     "test:security": "tsx src/security-test.ts",
+    "test:stampede": "tsx src/stampede-test.ts",
     "test:k6": "docker compose run --rm k6 run /scripts/integration-test.js",
     "test:stress": "docker compose run --rm k6 run /scripts/stress-test.js",
     "batch": "tsx src/batch-job.ts",
@@ -45,6 +46,7 @@
     "ioredis": "^6.0.0",
     "multer": "^2.3.0",
     "pg": "^8.23.0",
+    "pino": "^10.4.0",
     "sharp": "^0.35.4"
   },
   "devDependencies": {
