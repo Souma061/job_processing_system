@@ -23,7 +23,10 @@ function extractApiKey(req: Request): string | null {
   if (typeof authHeader === "string") {
     // Supports: Bearer <key> or ApiKey <key>
     const parts = authHeader.trim().split(" ");
-    if (parts.length === 2 && (parts[0] === "Bearer" || parts[0] === "ApiKey")) {
+    if (
+      parts.length === 2 &&
+      (parts[0] === "Bearer" || parts[0] === "ApiKey")
+    ) {
       return parts[1].trim();
     }
   }
@@ -43,10 +46,14 @@ export function apiKeyAuthMiddleware(
   const apiKey = extractApiKey(req);
 
   if (!apiKey) {
-    logger.warn("AUTH", `Unauthorized access attempt to ${req.method} ${req.originalUrl} (No API key provided)`, {
-      ip: req.ip,
-      correlationId: req.correlationId,
-    });
+    logger.warn(
+      "AUTH",
+      `Unauthorized access attempt to ${req.method} ${req.originalUrl} (No API key provided)`,
+      {
+        ip: req.ip,
+        correlationId: req.correlationId,
+      },
+    );
     return res.status(401).json({
       error: "UNAUTHORIZED",
       message: "API Key required. Please provide a valid 'X-API-Key' header.",
@@ -56,10 +63,14 @@ export function apiKeyAuthMiddleware(
 
   const user = API_KEYS[apiKey];
   if (!user) {
-    logger.warn("AUTH", `Forbidden access attempt with invalid API key: "${apiKey.slice(0, 8)}..."`, {
-      ip: req.ip,
-      correlationId: req.correlationId,
-    });
+    logger.warn(
+      "AUTH",
+      `Forbidden access attempt with invalid API key: "${apiKey.slice(0, 8)}..."`,
+      {
+        ip: req.ip,
+        correlationId: req.correlationId,
+      },
+    );
     return res.status(401).json({
       error: "INVALID_API_KEY",
       message: "The provided API Key is invalid or expired.",
@@ -103,4 +114,3 @@ export function requireRole(allowedRoles: Array<"standard" | "vip" | "admin">) {
     next();
   };
 }
-
