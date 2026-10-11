@@ -22,6 +22,25 @@ if (!fs.existsSync(LOGS_DIR)) {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
 }
 
+const fileStream = fs.createWriteStream(LOG_FILE_PATH, {
+  flags: "a", // Append mode
+});
+
+const pinoInstance = pino(
+  {
+    level: process.env.LOG_LEVEL || "info",
+    timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
+    formatters: {
+      level: (label) => ({ level: label }), // outputs level: "info" instead of numeric 30
+    },
+    messageKey: "message", // outputs "message" instead of "msg"
+  },
+  pino.multistream([
+    { stream: process.stdout },
+    { stream: fileStream },
+  ]),
+);
+
 export type LogLevel = "info" | "warn" | "error" | "debug";
 
 function formatError(err: any): any {
@@ -36,63 +55,30 @@ function formatError(err: any): any {
 }
 
 export function logToFile(entry: LogEntry): void {
-  const record: LogEntry = {
-    ...entry,
-    timestamp: entry.timestamp || new Date().toISOString(),
-    error: entry.error ? formatError(entry.error) : undefined,
-  };
-  //write NDJSONL (Newline Delimited JSON) to disk
-  try {
-    fs.appendFileSync(LOG_FILE_PATH, JSON.stringify(record) + "\n", "utf8");
-  } catch (err) {
-    console.error("Failed to write log entry to file:", err);
-  }
-  //pretty print to console
-  const colorMap: Record<LogLevel, string> = {
-    debug: "\x1b[90m", // Gray
-    info: "\x1b[36m", // Cyan
-    warn: "\x1b[33m", // Yellow
-    error: "\x1b[31m", // Red
-  };
-  const reset = "\x1b[0m";
-  const color = colorMap[record.level] || reset;
-  const corrTag = record.correlationId
-    ? ` [\x1b[35m${record.correlationId}\x1b[0m]`
-    : "";
-  const jobTag = record.jobId ? ` (\x1b[34m${record.jobId}\x1b[0m)` : "";
-  const durTag =
-    record.durationMs !== undefined
-      ? ` \x1b[32m+${record.durationMs}ms\x1b[0m`
-      : "";
-  console.log(
-    `${color}[${record.level.toUpperCase()}]${reset} [${record.context}]${corrTag}${jobTag} ${record.message}${durTag}`,
+  const {
+    level = "info",
+    context = "APP",
+    message = "",
+    error,
+    ...meta
+  } = entry;
+  const pinoLevel = (level in pinoInstance ? level : "info") as LogLevel;
+  pinoInstance[pinoLevel](
+    {
+      context,
+      error: error ? formatError(error) : undefined,
+      ...meta,
+    },
+    message,
   );
-  if (record.error) {
-    console.error(
-      `${color}[${record.level.toUpperCase()}]${reset} [${record.context}]${corrTag}${jobTag} Error:`,
-      record.error,
-    );
-  }
 }
 export const logger = {
-  info: (
-    context: string,
-    message: string,
-    meta: Omit<LogEntry, "level" | "context" | "message"> = {},
-  ) => logToFile({ level: "info", context, message, ...meta }),
-  warn: (
-    context: string,
-    message: string,
-    meta: Omit<LogEntry, "level" | "context" | "message"> = {},
-  ) => logToFile({ level: "warn", context, message, ...meta }),
-  error: (
-    context: string,
-    message: string,
-    meta: Omit<LogEntry, "level" | "context" | "message"> = {},
-  ) => logToFile({ level: "error", context, message, ...meta }),
-  debug: (
-    context: string,
-    message: string,
-    meta: Omit<LogEntry, "level" | "context" | "message"> = {},
-  ) => logToFile({ level: "debug", context, message, ...meta }),
+  info: (context: string, message: string, meta: Record<string, any> = {}) =>
+    pinoInstance.info({ context, ...meta }, message),
+  warn: (context: string, message: string, meta: Record<string, any> = {}) =>
+    pinoInstance.warn({ context, ...meta }, message),
+  error: (context: string, message: string, meta: Record<string, any> = {}) =>
+    pinoInstance.error({ context, ...meta }, message),
+  debug: (context: string, message: string, meta: Record<string, any> = {}) =>
+    pinoInstance.debug({ context, ...meta }, message),
 };

@@ -121,7 +121,11 @@ async function runStampede() {
   console.log(`   • Min Latency:        ${min}ms`);
   console.log(`   • Max Latency:        ${max}ms`);
   console.log("==================================================================\n");
+  process.exit(0);
 }
 
-runStampede().catch(console.error);
+runStampede().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 

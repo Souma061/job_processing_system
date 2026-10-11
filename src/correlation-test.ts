@@ -118,7 +118,19 @@ async function runCorrelationTest() {
     userLogs.forEach((log) => {
       const dur = log.durationMs !== undefined ? ` (+${log.durationMs}ms)` : "";
       const err = log.error ? ` ⚠️ Error: ${log.error.message || log.error}` : "";
-      console.log(`   • [${log.level.toUpperCase().padEnd(5)}] [${log.context.padEnd(8)}] ${log.message}${dur}${err}`);
+      const lvl =
+        typeof log.level === "string"
+          ? log.level
+          : log.level === 30
+            ? "info"
+            : log.level === 40
+              ? "warn"
+              : log.level === 50
+                ? "error"
+                : "info";
+      const ctx = log.context || "APP";
+      const msg = log.message || log.msg || "";
+      console.log(`   • [${lvl.toUpperCase().padEnd(5)}] [${ctx.padEnd(8)}] ${msg}${dur}${err}`);
     });
   }
 

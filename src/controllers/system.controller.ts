@@ -83,7 +83,20 @@ export function getLogsStream(req: Request, res: Response) {
         const corrTag = e.correlationId ? ` [${e.correlationId}]` : "";
         const dur = e.durationMs !== undefined ? ` (+${e.durationMs}ms)` : "";
         const err = e.error ? ` [ERROR: ${e.error.message || e.error}]` : "";
-        return `[${e.timestamp}] [${e.level.toUpperCase()}] [${e.context}]${corrTag} ${e.message}${dur}${err}`;
+        const lvl =
+          typeof e.level === "string"
+            ? e.level
+            : e.level === 30
+              ? "info"
+              : e.level === 40
+                ? "warn"
+                : e.level === 50
+                  ? "error"
+                  : "info";
+        const ts = e.timestamp || e.time || "";
+        const ctx = e.context || "APP";
+        const msg = e.message || e.msg || "";
+        return `[${ts}] [${lvl.toUpperCase()}] [${ctx}]${corrTag} ${msg}${dur}${err}`;
       });
       return res.status(200).json(formatted);
     }
