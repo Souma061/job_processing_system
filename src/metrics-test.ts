@@ -73,9 +73,13 @@ async function runMetricsTest() {
     const filename = await createTestImage(item.name, item.r, item.g, item.b);
     const tag = item.priority === 1 ? "⭐ VIP" : "Normal";
 
+    const apiKey = item.priority === 1 ? "key_vip_prod_456" : "key_std_prod_123";
     const res = await fetch(`${SERVER_URL}/jobs`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": apiKey,
+      },
       body: JSON.stringify({
         image: filename,
         priority: item.priority,
@@ -100,7 +104,9 @@ async function runMetricsTest() {
   while (pending.size > 0 && Date.now() - startTime < 40000) {
     await new Promise((r) => setTimeout(r, 1000));
     for (const id of Array.from(pending)) {
-      const res = await fetch(`${SERVER_URL}/jobs/${id}`);
+      const res = await fetch(`${SERVER_URL}/jobs/${id}`, {
+        headers: { "X-API-Key": "key_vip_prod_456" },
+      });
       if (res.ok) {
         const job = (await res.json()) as any;
         if (job.status === "completed" || job.status === "failed") {
@@ -118,7 +124,9 @@ async function runMetricsTest() {
 
   // 3. Query GET /metrics
   console.log(`\n🔍 Step 3: Fetching aggregate telemetry from GET /metrics...`);
-  const metricsRes = await fetch(`${SERVER_URL}/metrics`);
+  const metricsRes = await fetch(`${SERVER_URL}/metrics`, {
+    headers: { "X-API-Key": "key_vip_prod_456" },
+  });
   if (!metricsRes.ok) {
     console.error(`❌ Failed to retrieve /metrics: ${metricsRes.status} ${metricsRes.statusText}`);
     return;

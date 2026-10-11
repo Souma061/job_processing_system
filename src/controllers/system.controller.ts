@@ -97,10 +97,24 @@ export function getLogsStream(req: Request, res: Response) {
 }
 
 // GET /metrics - Telemetry, throughput, and latency percentiles (p50, p95, p99)
-export async function getMetricsHandler(_req: Request, res: Response) {
+export async function getMetricsHandler(req: Request, res: Response) {
   try {
     const { getSystemMetrics } = await import("../metrics.js");
-    const metrics = await getSystemMetrics();
+    const rawWindow = req.query.windowHours as string | undefined;
+    let windowHours: number | undefined = 24; // Default to 24-hour rolling window for production performance
+
+    if (rawWindow !== undefined) {
+      if (rawWindow.toLowerCase() === "all" || rawWindow === "0") {
+        windowHours = undefined; // No time limit filter
+      } else {
+        const parsed = parseInt(rawWindow, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          windowHours = parsed;
+        }
+      }
+    }
+
+    const metrics = await getSystemMetrics(windowHours);
     return res.status(200).json(metrics);
   } catch (err: any) {
     return res.status(500).json({

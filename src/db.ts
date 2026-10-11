@@ -159,6 +159,155 @@ export async function getTotalJobsCount(): Promise<number> {
   return parseInt(res.rows[0]?.total || "0", 10);
 }
 
+export interface DbAggregatedMetrics {
+  totalCount: number;
+  completedCount: number;
+  failedCount: number;
+  inProgressCount: number;
+  pendingCount: number;
+  completedLast60s: number;
+  totalTurnaround: {
+    count: number;
+    avg: number;
+    min: number;
+    max: number;
+    p50: number;
+    p95: number;
+    p99: number;
+  };
+  queueWait: {
+    count: number;
+    avg: number;
+    min: number;
+    max: number;
+    p50: number;
+    p95: number;
+    p99: number;
+  };
+  processingDuration: {
+    count: number;
+    avg: number;
+    min: number;
+    max: number;
+    p50: number;
+    p95: number;
+    p99: number;
+  };
+  priorityBreakdown: {
+    vip: { count: number; avgWaitMs: number; p50WaitMs: number };
+    normal: { count: number; avgWaitMs: number; p50WaitMs: number };
+    waitAdvantageMs: number;
+  };
+}
+
+// 8c. High-performance SQL aggregation for metrics & percentiles (PostgreSQL percentile_cont)
+export async function getAggregatedSystemMetricsFromDb(
+  windowHours?: number,
+): Promise<DbAggregatedMetrics> {
+  const query = `
+    SELECT
+      COUNT(*)::int AS total_count,
+      COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_count,
+      COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_count,
+      COUNT(*) FILTER (WHERE status = 'in-progress')::int AS in_progress_count,
+      COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count,
+      COUNT(*) FILTER (WHERE status = 'completed' AND updated_at >= NOW() - INTERVAL '60 seconds')::int AS completed_last_60s,
+
+      -- Timings
+      COUNT(*) FILTER (WHERE metrics IS NOT NULL AND metrics->'timings' IS NOT NULL)::int AS timings_count,
+      COALESCE(ROUND(AVG((metrics->'timings'->>'totalLatencyMs')::numeric)), 0)::int AS total_avg,
+      COALESCE(MIN((metrics->'timings'->>'totalLatencyMs')::numeric), 0)::int AS total_min,
+      COALESCE(MAX((metrics->'timings'->>'totalLatencyMs')::numeric), 0)::int AS total_max,
+      COALESCE(ROUND(percentile_cont(0.50) WITHIN GROUP (ORDER BY (metrics->'timings'->>'totalLatencyMs')::numeric))::int, 0) AS total_p50,
+      COALESCE(ROUND(percentile_cont(0.95) WITHIN GROUP (ORDER BY (metrics->'timings'->>'totalLatencyMs')::numeric))::int, 0) AS total_p95,
+      COALESCE(ROUND(percentile_cont(0.99) WITHIN GROUP (ORDER BY (metrics->'timings'->>'totalLatencyMs')::numeric))::int, 0) AS total_p99,
+
+      COALESCE(ROUND(AVG((metrics->'timings'->>'queueWaitMs')::numeric)), 0)::int AS wait_avg,
+      COALESCE(MIN((metrics->'timings'->>'queueWaitMs')::numeric), 0)::int AS wait_min,
+      COALESCE(MAX((metrics->'timings'->>'queueWaitMs')::numeric), 0)::int AS wait_max,
+      COALESCE(ROUND(percentile_cont(0.50) WITHIN GROUP (ORDER BY (metrics->'timings'->>'queueWaitMs')::numeric))::int, 0) AS wait_p50,
+      COALESCE(ROUND(percentile_cont(0.95) WITHIN GROUP (ORDER BY (metrics->'timings'->>'queueWaitMs')::numeric))::int, 0) AS wait_p95,
+      COALESCE(ROUND(percentile_cont(0.99) WITHIN GROUP (ORDER BY (metrics->'timings'->>'queueWaitMs')::numeric))::int, 0) AS wait_p99,
+
+      COALESCE(ROUND(AVG((metrics->'timings'->>'processingDurationMs')::numeric)), 0)::int AS proc_avg,
+      COALESCE(MIN((metrics->'timings'->>'processingDurationMs')::numeric), 0)::int AS proc_min,
+      COALESCE(MAX((metrics->'timings'->>'processingDurationMs')::numeric), 0)::int AS proc_max,
+      COALESCE(ROUND(percentile_cont(0.50) WITHIN GROUP (ORDER BY (metrics->'timings'->>'processingDurationMs')::numeric))::int, 0) AS proc_p50,
+      COALESCE(ROUND(percentile_cont(0.95) WITHIN GROUP (ORDER BY (metrics->'timings'->>'processingDurationMs')::numeric))::int, 0) AS proc_p95,
+      COALESCE(ROUND(percentile_cont(0.99) WITHIN GROUP (ORDER BY (metrics->'timings'->>'processingDurationMs')::numeric))::int, 0) AS proc_p99,
+
+      -- Priority Breakdown
+      COUNT(*) FILTER (WHERE (metrics->>'priority')::int = 1)::int AS vip_count,
+      COALESCE(ROUND(AVG((metrics->'timings'->>'queueWaitMs')::numeric) FILTER (WHERE (metrics->>'priority')::int = 1)), 0)::int AS vip_avg_wait,
+      COALESCE(ROUND(percentile_cont(0.50) WITHIN GROUP (ORDER BY (metrics->'timings'->>'queueWaitMs')::numeric) FILTER (WHERE (metrics->>'priority')::int = 1))::int, 0) AS vip_p50_wait,
+
+      COUNT(*) FILTER (WHERE metrics IS NOT NULL AND metrics->'timings' IS NOT NULL AND (metrics->>'priority')::int != 1)::int AS norm_count,
+      COALESCE(ROUND(AVG((metrics->'timings'->>'queueWaitMs')::numeric) FILTER (WHERE metrics IS NOT NULL AND metrics->'timings' IS NOT NULL AND (metrics->>'priority')::int != 1)), 0)::int AS norm_avg_wait,
+      COALESCE(ROUND(percentile_cont(0.50) WITHIN GROUP (ORDER BY (metrics->'timings'->>'queueWaitMs')::numeric) FILTER (WHERE metrics IS NOT NULL AND metrics->'timings' IS NOT NULL AND (metrics->>'priority')::int != 1))::int, 0) AS norm_p50_wait
+
+    FROM jobs
+    WHERE ($1::int IS NULL OR created_at >= NOW() - ($1::int || ' hours')::interval);
+  `;
+
+  const param = windowHours && windowHours > 0 ? windowHours : null;
+  const res = await pool.query(query, [param]);
+  const row = res.rows[0];
+
+  const timingsCount = row.timings_count || 0;
+  const vipCount = row.vip_count || 0;
+  const normCount = row.norm_count || 0;
+  const waitAdvantageMs = Math.max(0, row.norm_avg_wait - row.vip_avg_wait);
+
+  return {
+    totalCount: row.total_count || 0,
+    completedCount: row.completed_count || 0,
+    failedCount: row.failed_count || 0,
+    inProgressCount: row.in_progress_count || 0,
+    pendingCount: row.pending_count || 0,
+    completedLast60s: row.completed_last_60s || 0,
+    totalTurnaround: {
+      count: timingsCount,
+      avg: row.total_avg,
+      min: row.total_min,
+      max: row.total_max,
+      p50: row.total_p50,
+      p95: row.total_p95,
+      p99: row.total_p99,
+    },
+    queueWait: {
+      count: timingsCount,
+      avg: row.wait_avg,
+      min: row.wait_min,
+      max: row.wait_max,
+      p50: row.wait_p50,
+      p95: row.wait_p95,
+      p99: row.wait_p99,
+    },
+    processingDuration: {
+      count: timingsCount,
+      avg: row.proc_avg,
+      min: row.proc_min,
+      max: row.proc_max,
+      p50: row.proc_p50,
+      p95: row.proc_p95,
+      p99: row.proc_p99,
+    },
+    priorityBreakdown: {
+      vip: {
+        count: vipCount,
+        avgWaitMs: row.vip_avg_wait,
+        p50WaitMs: row.vip_p50_wait,
+      },
+      normal: {
+        count: normCount,
+        avgWaitMs: row.norm_avg_wait,
+        p50WaitMs: row.norm_p50_wait,
+      },
+      waitAdvantageMs,
+    },
+  };
+}
+
 // 9. Startup Crash Recovery: Reset in-progress to pending, return all pending jobs
 export async function recoverJobsFromDatabase(): Promise<JobRow[]> {
   const client = await pool.connect();

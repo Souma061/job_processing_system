@@ -1,4 +1,4 @@
-import { getAllJobs, type JobRow } from "./db.js";
+import { getAggregatedSystemMetricsFromDb } from "./db.js";
 import { imageQueue } from "./queue.js";
 
 export interface LatencyDistribution {
@@ -90,9 +90,7 @@ function computeDistribution(values: number[]): LatencyDistribution {
   };
 }
 
-export async function getSystemMetrics(): Promise<SystemMetrics> {
-  const jobs: JobRow[] = await getAllJobs();
-
+export async function getSystemMetrics(windowHours?: number): Promise<SystemMetrics> {
   // 1. BullMQ Real-time Queue State
   const fifoWaiting = await imageQueue.getWaitingCount();
   const prioritizedWaiting = await imageQueue.getPrioritizedCount();
@@ -101,89 +99,19 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
   const delayed = await imageQueue.getDelayedCount();
   const totalDepth = totalWaiting + active;
 
-  // 2. Count states
-  let completedCount = 0;
-  let failedCount = 0;
-  let inProgressCount = 0;
-  let pendingCount = 0;
+  // 2. High-performance aggregated metrics directly from PostgreSQL (percentile_cont pushdown)
+  const dbData = await getAggregatedSystemMetricsFromDb(windowHours);
 
-  const totalTurnaroundTimes: number[] = [];
-  const queueWaitTimes: number[] = [];
-  const processingDurations: number[] = [];
-
-  const vipWaitTimes: number[] = [];
-  const normalWaitTimes: number[] = [];
-
-  const now = Date.now();
-  let completedLast60s = 0;
-
-  for (const job of jobs) {
-    if (job.status === "completed") {
-      completedCount++;
-      const updatedAt = new Date(job.updated_at).getTime();
-      if (now - updatedAt <= 60000) {
-        completedLast60s++;
-      }
-    } else if (job.status === "failed") {
-      failedCount++;
-    } else if (job.status === "in-progress") {
-      inProgressCount++;
-    } else if (job.status === "pending") {
-      pendingCount++;
-    }
-
-    // Extract metrics if available
-    if (job.metrics) {
-      let metricsObj = job.metrics;
-      if (typeof metricsObj === "string") {
-        try {
-          metricsObj = JSON.parse(metricsObj);
-        } catch {
-          metricsObj = null;
-        }
-      }
-
-      if (metricsObj?.timings) {
-        const { totalLatencyMs, queueWaitMs, processingDurationMs } = metricsObj.timings;
-        if (typeof totalLatencyMs === "number" && totalLatencyMs >= 0) {
-          totalTurnaroundTimes.push(totalLatencyMs);
-        }
-        if (typeof queueWaitMs === "number" && queueWaitMs >= 0) {
-          queueWaitTimes.push(queueWaitMs);
-          const priority = metricsObj.priority || 5;
-          if (priority === 1) {
-            vipWaitTimes.push(queueWaitMs);
-          } else {
-            normalWaitTimes.push(queueWaitMs);
-          }
-        }
-        if (typeof processingDurationMs === "number" && processingDurationMs >= 0) {
-          processingDurations.push(processingDurationMs);
-        }
-      }
-    }
-  }
-
-  const total = jobs.length;
-  const errorRatePct = total > 0 ? Number(((failedCount / total) * 100).toFixed(1)) : 0;
-
-  // 3. Compute distributions
-  const totalDist = computeDistribution(totalTurnaroundTimes);
-  const waitDist = computeDistribution(queueWaitTimes);
-  const processDist = computeDistribution(processingDurations);
-
-  // 4. Priority breakdown
-  const vipDist = computeDistribution(vipWaitTimes);
-  const normalDist = computeDistribution(normalWaitTimes);
-  const waitAdvantageMs = Math.max(0, normalDist.avg - vipDist.avg);
+  const total = dbData.totalCount;
+  const errorRatePct = total > 0 ? Number(((dbData.failedCount / total) * 100).toFixed(1)) : 0;
 
   return {
     counts: {
       total,
-      completed: completedCount,
-      failed: failedCount,
-      inProgress: inProgressCount,
-      pending: pendingCount,
+      completed: dbData.completedCount,
+      failed: dbData.failedCount,
+      inProgress: dbData.inProgressCount,
+      pending: dbData.pendingCount,
       errorRatePct,
     },
     queue: {
@@ -195,28 +123,16 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
       totalDepth,
     },
     throughput: {
-      completedLast60s,
-      jobsPerMinute: completedLast60s,
-      jobsPerSecond: Number((completedLast60s / 60).toFixed(2)),
+      completedLast60s: dbData.completedLast60s,
+      jobsPerMinute: dbData.completedLast60s,
+      jobsPerSecond: Number((dbData.completedLast60s / 60).toFixed(2)),
     },
     latencies: {
-      totalTurnaroundMs: totalDist,
-      queueWaitMs: waitDist,
-      processingDurationMs: processDist,
+      totalTurnaroundMs: dbData.totalTurnaround,
+      queueWaitMs: dbData.queueWait,
+      processingDurationMs: dbData.processingDuration,
     },
-    priorityBreakdown: {
-      vip: {
-        count: vipWaitTimes.length,
-        avgWaitMs: vipDist.avg,
-        p50WaitMs: vipDist.p50,
-      },
-      normal: {
-        count: normalWaitTimes.length,
-        avgWaitMs: normalDist.avg,
-        p50WaitMs: normalDist.p50,
-      },
-      waitAdvantageMs,
-    },
+    priorityBreakdown: dbData.priorityBreakdown,
     timestamp: new Date().toISOString(),
   };
 }
