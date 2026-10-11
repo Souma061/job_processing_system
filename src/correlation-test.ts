@@ -87,21 +87,32 @@ async function runCorrelationTest() {
   console.log("\n⏳ Step 2: Waiting 4 seconds for worker to process and write structured logs...");
   await new Promise((r) => setTimeout(r, 4000));
 
-  // Step 3: Inspect logs/jobs.jsonl
-  console.log("\n🔍 Step 3: Querying logs/jobs.jsonl by Correlation ID...\n");
-  if (!fs.existsSync(LOG_FILE_PATH)) {
-    console.error("❌ Log file does not exist yet at", LOG_FILE_PATH);
-    return;
+  // Step 3: Query logs by Correlation ID
+  console.log("\n🔍 Step 3: Querying logs via GET /logs by Correlation ID...\n");
+  let parsedLogs: any[] = [];
+  try {
+    const logRes = await fetch(`${SERVER_URL}/logs?format=json&limit=500`, {
+      headers: { "X-API-Key": "key_admin_prod_789" },
+    });
+    if (logRes.ok) {
+      parsedLogs = (await logRes.json()) as any[];
+    }
+  } catch {
+    // fallback
   }
 
-  const rawLines = fs.readFileSync(LOG_FILE_PATH, "utf-8").trim().split("\n");
-  const parsedLogs: any[] = rawLines.map((l) => {
-    try {
-      return JSON.parse(l);
-    } catch {
-      return null;
-    }
-  }).filter(Boolean);
+  if (parsedLogs.length === 0 && fs.existsSync(LOG_FILE_PATH)) {
+    const rawLines = fs.readFileSync(LOG_FILE_PATH, "utf-8").trim().split("\n");
+    parsedLogs = rawLines
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }
 
   for (const item of submitted) {
     console.log("------------------------------------------------------------------");

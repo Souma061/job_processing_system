@@ -35,29 +35,30 @@ export async function healthCheck(_req: Request, res: Response) {
   }
 }
 
-import { LOG_FILE_PATH } from "../logger.js";
+import { LOG_FILE_PATH, getRecentLogs } from "../logger.js";
 
 // GET /logs - Stream and filter structured logs (supports ?correlationId=... & ?level=...)
 export function getLogsStream(req: Request, res: Response) {
-  const filePath = fs.existsSync(LOG_FILE_PATH) ? LOG_FILE_PATH : LOG_FILE;
-  if (!fs.existsSync(filePath)) {
-    return res.status(200).json([]);
-  }
   try {
-    const content = fs.readFileSync(filePath, "utf-8");
-    const rawLines = content.trim().split("\n").filter(Boolean);
+    let entries = getRecentLogs();
 
-    // If it's structured NDJSONL
-    if (filePath.endsWith(".jsonl")) {
-      let entries = rawLines
-        .map((line) => {
-          try {
-            return JSON.parse(line);
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean);
+    // If in-memory ring buffer is empty, fall back to file if one exists
+    if (entries.length === 0) {
+      const filePath = fs.existsSync(LOG_FILE_PATH) ? LOG_FILE_PATH : LOG_FILE;
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const rawLines = content.trim().split("\n").filter(Boolean);
+        entries = rawLines
+          .map((line) => {
+            try {
+              return JSON.parse(line);
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean);
+      }
+    }
 
       const { correlationId, level, limit } = req.query;
 
@@ -78,34 +79,29 @@ export function getLogsStream(req: Request, res: Response) {
         return res.status(200).json(entries);
       }
 
-      // Default formatted strings for web terminal
-      const formatted = entries.map((e) => {
-        const corrTag = e.correlationId ? ` [${e.correlationId}]` : "";
-        const dur = e.durationMs !== undefined ? ` (+${e.durationMs}ms)` : "";
-        const err = e.error ? ` [ERROR: ${e.error.message || e.error}]` : "";
-        const lvl =
-          typeof e.level === "string"
-            ? e.level
-            : e.level === 30
-              ? "info"
-              : e.level === 40
-                ? "warn"
-                : e.level === 50
-                  ? "error"
-                  : "info";
-        const ts = e.timestamp || e.time || "";
-        const ctx = e.context || "APP";
-        const msg = e.message || e.msg || "";
-        return `[${ts}] [${lvl.toUpperCase()}] [${ctx}]${corrTag} ${msg}${dur}${err}`;
-      });
-      return res.status(200).json(formatted);
-    }
-
-    // Fallback for legacy text logs
-    const lines = rawLines.slice(-60);
-    return res.status(200).json(lines);
+    // Default formatted strings for web terminal
+    const formatted = entries.map((e) => {
+      const corrTag = e.correlationId ? ` [${e.correlationId}]` : "";
+      const dur = e.durationMs !== undefined ? ` (+${e.durationMs}ms)` : "";
+      const err = e.error ? ` [ERROR: ${e.error.message || e.error}]` : "";
+      const lvl =
+        typeof e.level === "string"
+          ? e.level
+          : e.level === 30
+            ? "info"
+            : e.level === 40
+              ? "warn"
+              : e.level === 50
+                ? "error"
+                : "info";
+      const ts = e.timestamp || e.time || "";
+      const ctx = e.context || "APP";
+      const msg = e.message || e.msg || "";
+      return `[${ts}] [${lvl.toUpperCase()}] [${ctx}]${corrTag} ${msg}${dur}${err}`;
+    });
+    return res.status(200).json(formatted);
   } catch (err) {
-    return res.status(500).json({ error: "Failed to read log file" });
+    return res.status(500).json({ error: "Failed to read logs" });
   }
 }
 

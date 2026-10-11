@@ -1,6 +1,8 @@
-import fs from "node:fs";
+import "dotenv/config";
 import path from "node:path";
+import { PassThrough, Writable } from "node:stream";
 import pino from "pino";
+import axiomTransport from "@axiomhq/pino";
 
 export interface LogEntry {
   timestamp?: string;
@@ -15,16 +17,52 @@ export interface LogEntry {
   metrics?: any;
   [key: string]: any;
 }
-const LOGS_DIR = path.resolve("logs");
-export const LOG_FILE_PATH = path.join(LOGS_DIR, "jobs.jsonl");
 
-if (!fs.existsSync(LOGS_DIR)) {
-  fs.mkdirSync(LOGS_DIR, { recursive: true });
+// Bounded in-memory ring buffer (preserves recent log queries without consuming disk space)
+const MAX_RECENT_LOGS = 500;
+const recentLogsBuffer: any[] = [];
+
+export function getRecentLogs(): any[] {
+  return [...recentLogsBuffer];
 }
 
-const fileStream = fs.createWriteStream(LOG_FILE_PATH, {
-  flags: "a", // Append mode
+const memoryStream = new Writable({
+  write(chunk, _encoding, callback) {
+    try {
+      const parsed = JSON.parse(chunk.toString());
+      if (recentLogsBuffer.length >= MAX_RECENT_LOGS) {
+        recentLogsBuffer.shift();
+      }
+      recentLogsBuffer.push(parsed);
+    } catch {
+      // ignore parse errors
+    }
+    callback();
+  },
 });
+
+export const LOG_FILE_PATH = path.resolve("logs", "jobs.jsonl");
+
+const streams: pino.StreamEntry[] = [
+  { stream: process.stdout },
+  { stream: memoryStream },
+];
+
+if (process.env.AXIOM_TOKEN && process.env.AXIOM_DATASET) {
+  const axiomPassThrough = new PassThrough();
+  streams.push({ stream: axiomPassThrough });
+
+  axiomTransport({
+    dataset: process.env.AXIOM_DATASET,
+    token: process.env.AXIOM_TOKEN,
+  })
+    .then((dest) => {
+      axiomPassThrough.pipe(dest);
+    })
+    .catch((err) => {
+      console.error("[Logger] Failed to connect Axiom transport:", err);
+    });
+}
 
 const pinoInstance = pino(
   {
@@ -35,10 +73,7 @@ const pinoInstance = pino(
     },
     messageKey: "message", // outputs "message" instead of "msg"
   },
-  pino.multistream([
-    { stream: process.stdout },
-    { stream: fileStream },
-  ]),
+  pino.multistream(streams),
 );
 
 export type LogLevel = "info" | "warn" | "error" | "debug";
