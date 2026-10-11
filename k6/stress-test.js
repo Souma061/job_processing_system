@@ -36,6 +36,8 @@ export const options = {
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://host.docker.internal:3000';
+const KEY_STD = 'key_std_prod_123';
+const KEY_VIP = 'key_vip_prod_456';
 
 export default function () {
   const rand = Math.random();
@@ -44,11 +46,10 @@ export default function () {
   if (rand < 0.70) {
     // 70% Traffic: Job Ingestion (Standard vs VIP Priority)
     const isVip = Math.random() < 0.30; // 30% VIP priority (limit 100), 70% Normal (limit 50)
-    const priority = isVip ? 1 : 5;
+    const apiKey = isVip ? KEY_VIP : KEY_STD;
 
     const payload = JSON.stringify({
       image: 'sample.jpg',
-      priority,
       type: 'thumbnail',
     });
 
@@ -56,6 +57,7 @@ export default function () {
       headers: {
         'Content-Type': 'application/json',
         'X-Correlation-Id': correlationId,
+        'X-API-Key': apiKey,
       },
     };
 
@@ -88,8 +90,10 @@ export default function () {
     }
   } else if (rand < 0.85) {
     // 15% Traffic: Observability & Health Polling under load
-    const endpoint = Math.random() < 0.5 ? "/health" : "/metrics";
-    const res = http.get(`${BASE_URL}${endpoint}`);
+    const isMetrics = Math.random() < 0.5;
+    const url = isMetrics ? `${BASE_URL}/metrics` : `${BASE_URL}/health`;
+    const params = isMetrics ? { headers: { 'X-API-Key': KEY_STD } } : undefined;
+    const res = http.get(url, params);
 
     const ok = check(res, {
       "Observability endpoint returns 200": (r) => r.status === 200,
@@ -98,7 +102,9 @@ export default function () {
     unexpectedErrorRate.add(!ok);
   } else {
     // 15% Traffic: Concurrent Job Queries
-    const res = http.get(`${BASE_URL}/jobs?limit=20`);
+    const res = http.get(`${BASE_URL}/jobs?limit=20`, {
+      headers: { 'X-API-Key': KEY_STD },
+    });
 
     const ok = check(res, {
       "Jobs list returned 200": (r) => r.status === 200,

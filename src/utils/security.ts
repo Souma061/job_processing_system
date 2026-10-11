@@ -128,3 +128,4 @@ export function validateImageMagicBytes(filePath: string): {
     }
   }
 }
+

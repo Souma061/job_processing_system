@@ -498,8 +498,17 @@
         <h1>🖼️ Job Processing Dashboard</h1>
         <p class="subtitle">Live thumbnail generator with Sharp C++ Worker Threads & Observability Logs</p>
       </div>
-      <div>
+      <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
         <span style="font-size: 0.85rem; color: var(--success); font-weight: 600;">● Live Polling (1.5s)</span>
+        <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--card-bg); padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">🔑 Auth Tier:</span>
+          <select id="auth-key-select" style="background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.8rem; cursor: pointer;">
+            <option value="key_vip_prod_456" selected>⭐ VIP Client (key_vip)</option>
+            <option value="key_std_prod_123">Standard User (key_std)</option>
+            <option value="key_admin_prod_789">👑 Admin (key_admin)</option>
+            <option value="invalid_key_xyz">❌ Invalid Key (Test 401)</option>
+          </select>
+        </div>
       </div>
     </header>
 
@@ -700,6 +709,19 @@
 
     let selectedFiles = [];
 
+    // Phase 19: Security & API Key Authentication Helper
+    function getApiKey() {
+      const sel = document.getElementById('auth-key-select');
+      return sel ? sel.value : 'key_vip_prod_456';
+    }
+
+    function getAuthHeaders(extra = {}) {
+      return {
+        'X-API-Key': getApiKey(),
+        ...extra
+      };
+    }
+
     // File Selection Handler
     fileInput.addEventListener('change', (e) => {
       const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
@@ -800,17 +822,28 @@
 
           const res = await fetch('/jobs', {
             method: 'POST',
+            headers: getAuthHeaders(),
             body: formData
           });
-          return await res.json();
+          const data = await res.json();
+          if (res.status === 401) {
+            showAlert(`🔒 401 Unauthorized: ${data.message}`, 'error');
+          } else if (res.status === 403) {
+            showAlert(`⛔ 403 Forbidden: ${data.message}`, 'error');
+          } else if (res.status === 400) {
+            showAlert(`⚠️ 400 Validation Error: ${data.message || data.error}`, 'error');
+          }
+          return data;
         });
 
         const results = await Promise.all(uploadPromises);
         const createdCount = results.filter(r => r.id).length;
 
-        const isVip = priority === '1' ? ' [⭐ VIP Priority]' : '';
-        showAlert(`Successfully enqueued ${createdCount} image(s)${isVip}!`, 'success');
-        clearBtn.click();
+        if (createdCount > 0) {
+          const isVip = priority === '1' ? ' [⭐ VIP Priority]' : '';
+          showAlert(`Successfully enqueued ${createdCount} image(s)${isVip}!`, 'success');
+          clearBtn.click();
+        }
 
         fetchHealth();
         fetchJobs();
@@ -827,7 +860,7 @@
       try {
         const res = await fetch('/jobs', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ type: 'thumbnail', image: imageName, priority })
         });
         const data = await res.json();
@@ -837,6 +870,12 @@
           showAlert(`Job created for server preset "${imageName}"${tag}: ${data.id}`, 'success');
         } else if (res.status === 200) {
           showAlert(`Duplicate detected: Reusing existing job (${data.id})`, 'info');
+        } else if (res.status === 401) {
+          showAlert(`🔒 HTTP 401 Unauthorized: ${data.message || 'Invalid API Key'}`, 'error');
+        } else if (res.status === 403) {
+          showAlert(`⛔ HTTP 403 Forbidden: ${data.message || 'VIP tier key required!'}`, 'error');
+        } else if (res.status === 400) {
+          showAlert(`⚠️ HTTP 400 Rejected: ${data.message || data.error}`, 'error');
         } else if (res.status === 503) {
           showAlert(`🛑 HTTP 503 Backpressure: ${data.message || 'Queue saturated!'}`, 'error');
         } else {
@@ -941,7 +980,7 @@
       try {
         const res = await fetch('/jobs', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ ids }),
         });
         if (res.ok) {
@@ -951,8 +990,10 @@
           if (selectAll) selectAll.checked = false;
           fetchJobs();
           fetchHealth();
+        } else if (res.status === 403) {
+          showAlert('⛔ Access Denied: Administrator API Key required to delete jobs.', 'error');
         } else {
-          alert('Failed to delete selected jobs.');
+          showAlert('Failed to delete selected jobs.', 'error');
         }
       } catch (err) {
         console.error('Delete error:', err);
@@ -962,7 +1003,10 @@
     async function clearAllJobs() {
       if (!confirm('Are you sure you want to clear ALL finished jobs?')) return;
       try {
-        const res = await fetch('/jobs', { method: 'DELETE' });
+        const res = await fetch('/jobs', {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
         if (res.ok) {
           selectedJobIds.clear();
           updateSelectedUi();
@@ -970,8 +1014,10 @@
           if (selectAll) selectAll.checked = false;
           fetchJobs();
           fetchHealth();
+        } else if (res.status === 403) {
+          showAlert('⛔ Access Denied: Administrator API Key required to clear jobs.', 'error');
         } else {
-          alert('Failed to clear jobs.');
+          showAlert('Failed to clear jobs.', 'error');
         }
       } catch (err) {
         console.error('Clear error:', err);
@@ -981,7 +1027,13 @@
     // Poll Jobs List & Render Metrics
     async function fetchJobs() {
       try {
-        const res = await fetch('/jobs');
+        const res = await fetch('/jobs', {
+          headers: getAuthHeaders()
+        });
+        if (res.status === 401) {
+          jobsTbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color: var(--danger);">🔒 401 Unauthorized: Invalid or missing API Key. Select a valid tier above!</td></tr>`;
+          return;
+        }
         if (!res.ok) return;
 
         const jobs = await res.json();
@@ -1079,7 +1131,7 @@
     // Phase 12: Poll System Telemetry & Latencies
     async function fetchMetrics() {
       try {
-        const res = await fetch('/metrics');
+        const res = await fetch('/metrics', { headers: getAuthHeaders() });
         if (!res.ok) return;
         const data = await res.json();
 
@@ -1112,7 +1164,11 @@
     // Poll Log File
     async function fetchLogs() {
       try {
-        const res = await fetch('/logs');
+        const res = await fetch('/logs', { headers: getAuthHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          terminalLogs.innerHTML = '<span class="log-failed">🔒 403 Forbidden: Administrator API Key required to stream audit logs. Select "👑 Admin" above.</span>';
+          return;
+        }
         if (!res.ok) return;
         const lines = await res.json();
         if (!lines || lines.length === 0) {
@@ -1131,6 +1187,13 @@
         terminalLogs.scrollTop = terminalLogs.scrollHeight;
       } catch (_) { }
     }
+
+    // Trigger immediate refresh when changing API key
+    document.getElementById('auth-key-select')?.addEventListener('change', () => {
+      fetchJobs();
+      fetchMetrics();
+      fetchLogs();
+    });
 
     // Initial load and live polling
     fetchHealth();

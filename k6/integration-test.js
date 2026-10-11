@@ -15,7 +15,7 @@ export const options = {
       executor: 'shared-iterations',
       vus: 1,
       iterations: 1,
-      maxDuration: '20s',
+      maxDuration: '25s',
       exec: 'testEdgeCasesAndFunctional',
     },
     // Stage 2: Concurrent Multi-User Load Test (10 Virtual Users)
@@ -39,12 +39,15 @@ export const options = {
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://host.docker.internal:3000';
+const KEY_STD = 'key_std_prod_123';
+const KEY_VIP = 'key_vip_prod_456';
+const KEY_ADMIN = 'key_admin_prod_789';
 
 /**
- * SCENARIO 1: Comprehensive Edge Cases & Functional API Integration
+ * SCENARIO 1: Comprehensive Edge Cases, Auth & Functional Integration
  */
 export function testEdgeCasesAndFunctional() {
-  group('1. System Health Check', () => {
+  group('1. Public Health Check (No Auth Required)', () => {
     const res = http.get(`${BASE_URL}/health`);
     const success = check(res, {
       'Health check status is 200': (r) => r.status === 200,
@@ -56,14 +59,58 @@ export function testEdgeCasesAndFunctional() {
     errorRate.add(!success);
   });
 
+  group('2. Phase 19 Security: Missing API Key Rejected (401)', () => {
+    const res = http.post(`${BASE_URL}/jobs`, JSON.stringify({ image: 'sample.jpg' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const success = check(res, {
+      'Missing API Key returns HTTP 401': (r) => r.status === 401,
+      'Error code is UNAUTHORIZED': (r) => r.json('error') === 'UNAUTHORIZED',
+    });
+    if (success) edgeCasesPassed.add(1);
+    errorRate.add(!success);
+  });
+
+  group('3. Phase 19 Security: Tier-Enforced VIP Authorization (403)', () => {
+    // Standard tier key attempting to request Priority 1 (VIP line cutting)
+    const res = http.post(`${BASE_URL}/jobs`, JSON.stringify({ image: 'sample.jpg', priority: 1 }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': KEY_STD,
+      },
+    });
+    const success = check(res, {
+      'Standard key requesting VIP priority returns HTTP 403': (r) => r.status === 403,
+      'Error code is FORBIDDEN_TIER': (r) => r.json('error') === 'FORBIDDEN_TIER',
+    });
+    if (success) edgeCasesPassed.add(1);
+    errorRate.add(!success);
+  });
+
+  group('4. Phase 19 Security: Path Traversal Attack Rejected (400)', () => {
+    const res = http.post(`${BASE_URL}/jobs`, JSON.stringify({ image: '../../etc/passwd' }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': KEY_STD,
+      },
+    });
+    const success = check(res, {
+      'Path traversal rejected with HTTP 400': (r) => r.status === 400,
+      'Error code is PATH_TRAVERSAL_DETECTED': (r) => r.json('error') === 'PATH_TRAVERSAL_DETECTED',
+    });
+    if (success) edgeCasesPassed.add(1);
+    errorRate.add(!success);
+  });
+
   let createdJobId = null;
   const customTraceId = `k6-trace-${Date.now()}`;
 
-  group('2. Valid Normal Priority Job Submission', () => {
+  group('5. Valid Standard Priority Job Submission', () => {
     const payload = JSON.stringify({ image: 'sample.jpg', priority: 5 });
     const params = {
       headers: {
         'Content-Type': 'application/json',
+        'X-API-Key': KEY_STD,
       },
     };
 
@@ -84,12 +131,13 @@ export function testEdgeCasesAndFunctional() {
     errorRate.add(!success);
   });
 
-  group('3. Custom Correlation ID Propagation Check', () => {
-    const payload = JSON.stringify({ image: 'sample.jpg', priority: 1 });
+  group('6. Valid VIP Priority Job with Custom Correlation ID', () => {
+    const payload = JSON.stringify({ image: 'sample.jpg' });
     const params = {
       headers: {
         'Content-Type': 'application/json',
         'X-Correlation-Id': customTraceId,
+        'X-API-Key': KEY_VIP,
       },
     };
 
@@ -98,7 +146,8 @@ export function testEdgeCasesAndFunctional() {
 
     const success = check(res, {
       'VIP job created with HTTP 201': (r) => r.status === 201,
-      'Custom Correlation ID preserved in response header': () => returnTrace === customTraceId,
+      'VIP tier assigned': (r) => r.json('tier') === 'vip',
+      'Custom Correlation ID preserved in header': () => returnTrace === customTraceId,
       'Correlation ID matches in body': (r) => r.json('correlationId') === customTraceId,
     });
 
@@ -106,9 +155,14 @@ export function testEdgeCasesAndFunctional() {
     errorRate.add(!success);
   });
 
-  group('4. Edge Case: Missing Image Field (Bad Request 400)', () => {
-    const payload = JSON.stringify({}); // No image
-    const params = { headers: { 'Content-Type': 'application/json' } };
+  group('7. Edge Case: Missing Image Field (Bad Request 400)', () => {
+    const payload = JSON.stringify({});
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': KEY_STD,
+      },
+    };
 
     const res = http.post(`${BASE_URL}/jobs`, payload, params);
     const success = check(res, {
@@ -120,10 +174,14 @@ export function testEdgeCasesAndFunctional() {
     errorRate.add(!success);
   });
 
-  group('5. Edge Case: Poison Pill (Missing Disk Image)', () => {
-    // Non-existent image file -> Worker classifies as permanent error and sends to DLQ
+  group('8. Edge Case: Poison Pill (Missing Disk Image)', () => {
     const payload = JSON.stringify({ image: 'ghost-nonexistent-image.jpg', priority: 5 });
-    const params = { headers: { 'Content-Type': 'application/json' } };
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': KEY_STD,
+      },
+    };
 
     const res = http.post(`${BASE_URL}/jobs`, payload, params);
     const success = check(res, {
@@ -135,10 +193,12 @@ export function testEdgeCasesAndFunctional() {
     errorRate.add(!success);
   });
 
-  group('6. Single Job Query & S3 Pre-signed URL Check', () => {
+  group('9. Single Job Query & S3 Pre-signed URL Check', () => {
     if (createdJobId) {
       sleep(1); // Allow asynchronous BullMQ worker to claim and persist job to Neon DB
-      const res = http.get(`${BASE_URL}/jobs/${createdJobId}`);
+      const res = http.get(`${BASE_URL}/jobs/${createdJobId}`, {
+        headers: { 'X-API-Key': KEY_STD },
+      });
       const success = check(res, {
         'Fetch single job returns HTTP 200': (r) => r.status === 200,
         'Returned job ID matches': (r) => r.json('id') === createdJobId,
@@ -150,8 +210,10 @@ export function testEdgeCasesAndFunctional() {
     }
   });
 
-  group('7. Observability & Telemetry Endpoint (GET /metrics)', () => {
-    const res = http.get(`${BASE_URL}/metrics`);
+  group('10. Observability & Telemetry Endpoint (GET /metrics)', () => {
+    const res = http.get(`${BASE_URL}/metrics`, {
+      headers: { 'X-API-Key': KEY_STD },
+    });
     const success = check(res, {
       'Metrics endpoint returns HTTP 200': (r) => r.status === 200,
       'Total jobs counted': (r) => typeof r.json('counts.total') === 'number',
@@ -165,10 +227,12 @@ export function testEdgeCasesAndFunctional() {
     errorRate.add(!success);
   });
 
-  group('8. Log Tracing by Correlation ID (GET /logs)', () => {
-    const res = http.get(`${BASE_URL}/logs?correlationId=${customTraceId}`);
+  group('11. Log Tracing by Correlation ID (GET /logs - Admin Only)', () => {
+    const res = http.get(`${BASE_URL}/logs?correlationId=${customTraceId}`, {
+      headers: { 'X-API-Key': KEY_ADMIN },
+    });
     const success = check(res, {
-      'Query logs returns HTTP 200': (r) => r.status === 200,
+      'Query logs returns HTTP 200 for Admin': (r) => r.status === 200,
       'Logs returned as array': (r) => Array.isArray(r.json()),
     });
 
@@ -178,16 +242,15 @@ export function testEdgeCasesAndFunctional() {
 }
 
 /**
- * SCENARIO 2: Concurrent Multi-User Load Test (Simulating Virtual Users)
+ * SCENARIO 2: Concurrent Multi-User Load Test (Authenticated VUs)
  */
 export function testConcurrentVirtualUsers() {
   const isVip = __VU % 3 === 0; // 1 in 3 VUs is a VIP user
-  const priority = isVip ? 1 : 5;
+  const apiKey = isVip ? KEY_VIP : KEY_STD;
   const correlationId = `k6-vu-${__VU}-iter-${__ITER}-${Date.now()}`;
 
   const payload = JSON.stringify({
     image: 'sample.jpg',
-    priority,
     type: 'thumbnail',
   });
 
@@ -195,6 +258,7 @@ export function testConcurrentVirtualUsers() {
     headers: {
       'Content-Type': 'application/json',
       'X-Correlation-Id': correlationId,
+      'X-API-Key': apiKey,
     },
   };
 
