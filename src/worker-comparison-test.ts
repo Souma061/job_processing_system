@@ -39,9 +39,21 @@ interface RunStats {
   workerCount: number;
   totalBatchDurationMs: number;
   throughputJobsPerSec: number;
-  waitTimes: { avg: number; p50: number; p95: number; min: number; max: number };
+  waitTimes: {
+    avg: number;
+    p50: number;
+    p95: number;
+    min: number;
+    max: number;
+  };
   processTimes: { avg: number; p50: number; p95: number };
-  turnaroundTimes: { avg: number; p50: number; p95: number; min: number; max: number };
+  turnaroundTimes: {
+    avg: number;
+    p50: number;
+    p95: number;
+    min: number;
+    max: number;
+  };
   workerDistribution: Record<string, number>;
 }
 
@@ -50,9 +62,15 @@ async function executeBatchRun(
   prefix: string,
   workerCount: number,
 ): Promise<RunStats> {
-  console.log(`\n==================================================================`);
-  console.log(`   🚀 EXECUTING: ${label.toUpperCase()} (${workerCount} Active Worker${workerCount > 1 ? "s" : ""})`);
-  console.log(`==================================================================`);
+  console.log(
+    `\n==================================================================`,
+  );
+  console.log(
+    `   🚀 EXECUTING: ${label.toUpperCase()} (${workerCount} Active Worker${workerCount > 1 ? "s" : ""})`,
+  );
+  console.log(
+    `==================================================================`,
+  );
 
   // 1. Prepare images
   console.log(`📸 Creating ${BATCH_SIZE} unique test images...`);
@@ -84,7 +102,9 @@ async function executeBatchRun(
   }
 
   // 3. Poll until all jobs in batch are completed
-  console.log(`⏳ Monitoring execution until all ${jobIds.length} jobs complete...`);
+  console.log(
+    `⏳ Monitoring execution until all ${jobIds.length} jobs complete...`,
+  );
   const pending = new Set(jobIds);
   const completedJobs: any[] = [];
 
@@ -102,7 +122,9 @@ async function executeBatchRun(
           const m = job.payload?.metrics || job.metrics;
           const wait = m?.timings?.queueWaitMs ?? "?";
           const proc = m?.timings?.processingDurationMs ?? "?";
-          console.log(`   ✓ [${worker}] Completed ${id} (Wait: ${wait}ms, Process: ${proc}ms)`);
+          console.log(
+            `   ✓ [${worker}] Completed ${id} (Wait: ${wait}ms, Process: ${proc}ms)`,
+          );
         }
       }
     }
@@ -123,20 +145,26 @@ async function executeBatchRun(
 
     const m = job.payload?.metrics || job.metrics;
     if (m?.timings) {
-      if (typeof m.timings.queueWaitMs === "number") waitList.push(m.timings.queueWaitMs);
-      if (typeof m.timings.processingDurationMs === "number") procList.push(m.timings.processingDurationMs);
-      if (typeof m.timings.totalLatencyMs === "number") totalList.push(m.timings.totalLatencyMs);
+      if (typeof m.timings.queueWaitMs === "number")
+        waitList.push(m.timings.queueWaitMs);
+      if (typeof m.timings.processingDurationMs === "number")
+        procList.push(m.timings.processingDurationMs);
+      if (typeof m.timings.totalLatencyMs === "number")
+        totalList.push(m.timings.totalLatencyMs);
     }
   }
 
   const sortNum = (arr: number[]) => [...arr].sort((a, b) => a - b);
-  const avg = (arr: number[]) => (arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0);
+  const avg = (arr: number[]) =>
+    arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
 
   const sortedWait = sortNum(waitList);
   const sortedProc = sortNum(procList);
   const sortedTotal = sortNum(totalList);
 
-  const throughput = Number((BATCH_SIZE / (totalBatchDurationMs / 1000)).toFixed(2));
+  const throughput = Number(
+    (BATCH_SIZE / (totalBatchDurationMs / 1000)).toFixed(2),
+  );
 
   return {
     label,
@@ -167,16 +195,24 @@ async function executeBatchRun(
 }
 
 async function runComparison() {
-  console.log("\n==================================================================");
-  console.log("   🧪 BENCHMARK: SINGLE WORKER VS. MULTI-WORKER COMPARISON        ");
-  console.log("==================================================================\n");
+  console.log(
+    "\n==================================================================",
+  );
+  console.log(
+    "   🧪 BENCHMARK: SINGLE WORKER VS. MULTI-WORKER COMPARISON        ",
+  );
+  console.log(
+    "==================================================================\n",
+  );
 
   // Verify server
   try {
     const h = await fetch(`${SERVER_URL}/health`);
     if (!h.ok) throw new Error();
   } catch {
-    console.error("❌ Express server not responding on http://localhost:3000. Start with 'pnpm run dev' first.");
+    console.error(
+      "❌ Express server not responding on http://localhost:3000. Start with 'pnpm run dev' first.",
+    );
     process.exit(1);
   }
 
@@ -188,12 +224,18 @@ async function runComparison() {
   await new Promise((r) => setTimeout(r, 2000));
 
   // --- RUN 2: MULTI-WORKER (Add 2 more workers to cluster) ---
-  console.log("\n👉 Test 2/2: Launching 2 Additional Dynamic Workers (Worker-Cluster-A, Worker-Cluster-B)...");
+  console.log(
+    "\n👉 Test 2/2: Launching 2 Additional Dynamic Workers (Worker-Cluster-A, Worker-Cluster-B)...",
+  );
   const workerA = startBullWorker("Worker-Cluster-A", 2);
   const workerB = startBullWorker("Worker-Cluster-B", 2);
   await new Promise((r) => setTimeout(r, 1000)); // allow workers to register on Redis
 
-  const multiStats = await executeBatchRun("Multi-Worker Cluster (3 Workers)", "multi", 3);
+  const multiStats = await executeBatchRun(
+    "Multi-Worker Cluster (3 Workers)",
+    "multi",
+    3,
+  );
 
   // Stop dynamic workers
   console.log("\n🧹 Gracefully stopping dynamic cluster workers...");
@@ -201,57 +243,103 @@ async function runComparison() {
   await workerB.close();
 
   // --- COMPARATIVE SCORECARD ---
-  console.log("\n==================================================================");
-  console.log("           📊 FINAL COMPARATIVE BENCHMARK SCORECARD               ");
-  console.log("==================================================================\n");
+  console.log(
+    "\n==================================================================",
+  );
+  console.log(
+    "           📊 FINAL COMPARATIVE BENCHMARK SCORECARD               ",
+  );
+  console.log(
+    "==================================================================\n",
+  );
 
   const pad = (s: any, len = 26) => String(s).padEnd(len);
   const padR = (s: any, len = 18) => String(s).padStart(len);
 
-  console.log(`${pad("METRIC")} | ${padR("1 WORKER")} | ${padR("3 WORKERS")} | ${padR("IMPROVEMENT")}`);
+  console.log(
+    `${pad("METRIC")} | ${padR("1 WORKER")} | ${padR("3 WORKERS")} | ${padR("IMPROVEMENT")}`,
+  );
   console.log("-".repeat(85));
 
   // Batch Total Drain Time
-  const drainSingle = (singleStats.totalBatchDurationMs / 1000).toFixed(1) + " s";
+  const drainSingle =
+    (singleStats.totalBatchDurationMs / 1000).toFixed(1) + " s";
   const drainMulti = (multiStats.totalBatchDurationMs / 1000).toFixed(1) + " s";
-  const speedup = (singleStats.totalBatchDurationMs / multiStats.totalBatchDurationMs).toFixed(1) + "x faster";
-  console.log(`${pad("Total Batch Drain Time")} | ${padR(drainSingle)} | ${padR(drainMulti)} | ${padR("🚀 " + speedup)}`);
+  const speedup =
+    (
+      singleStats.totalBatchDurationMs / multiStats.totalBatchDurationMs
+    ).toFixed(1) + "x faster";
+  console.log(
+    `${pad("Total Batch Drain Time")} | ${padR(drainSingle)} | ${padR(drainMulti)} | ${padR("🚀 " + speedup)}`,
+  );
 
   // Throughput
   const tpSingle = singleStats.throughputJobsPerSec + " jobs/s";
   const tpMulti = multiStats.throughputJobsPerSec + " jobs/s";
-  const tpGain = "+" + ((multiStats.throughputJobsPerSec / singleStats.throughputJobsPerSec - 1) * 100).toFixed(0) + "%";
-  console.log(`${pad("Throughput (jobs/sec)")} | ${padR(tpSingle)} | ${padR(tpMulti)} | ${padR("⚡ " + tpGain)}`);
+  const tpGain =
+    "+" +
+    (
+      (multiStats.throughputJobsPerSec / singleStats.throughputJobsPerSec - 1) *
+      100
+    ).toFixed(0) +
+    "%";
+  console.log(
+    `${pad("Throughput (jobs/sec)")} | ${padR(tpSingle)} | ${padR(tpMulti)} | ${padR("⚡ " + tpGain)}`,
+  );
 
   // Average Queue Wait
   const waitAvgSingle = singleStats.waitTimes.avg + " ms";
   const waitAvgMulti = multiStats.waitTimes.avg + " ms";
-  const waitReduction = "-" + ((1 - multiStats.waitTimes.avg / singleStats.waitTimes.avg) * 100).toFixed(1) + "%";
-  console.log(`${pad("Avg Queue Wait Time")} | ${padR(waitAvgSingle)} | ${padR(waitAvgMulti)} | ${padR("📉 " + waitReduction)}`);
+  const waitReduction =
+    "-" +
+    ((1 - multiStats.waitTimes.avg / singleStats.waitTimes.avg) * 100).toFixed(
+      1,
+    ) +
+    "%";
+  console.log(
+    `${pad("Avg Queue Wait Time")} | ${padR(waitAvgSingle)} | ${padR(waitAvgMulti)} | ${padR("📉 " + waitReduction)}`,
+  );
 
   // Median (p50) Queue Wait
   const waitP50Single = singleStats.waitTimes.p50 + " ms";
   const waitP50Multi = multiStats.waitTimes.p50 + " ms";
-  console.log(`${pad("Median (p50) Queue Wait")} | ${padR(waitP50Single)} | ${padR(waitP50Multi)} | ${padR("-" + (singleStats.waitTimes.p50 - multiStats.waitTimes.p50) + " ms")}`);
+  console.log(
+    `${pad("Median (p50) Queue Wait")} | ${padR(waitP50Single)} | ${padR(waitP50Multi)} | ${padR("-" + (singleStats.waitTimes.p50 - multiStats.waitTimes.p50) + " ms")}`,
+  );
 
   // 95th Percentile (p95) Turnaround
   const turnP95Single = singleStats.turnaroundTimes.p95 + " ms";
   const turnP95Multi = multiStats.turnaroundTimes.p95 + " ms";
-  const turnDrop = "-" + ((1 - multiStats.turnaroundTimes.p95 / singleStats.turnaroundTimes.p95) * 100).toFixed(1) + "%";
-  console.log(`${pad("p95 Turnaround (Tail)")} | ${padR(turnP95Single)} | ${padR(turnP95Multi)} | ${padR("🎯 " + turnDrop)}`);
+  const turnDrop =
+    "-" +
+    (
+      (1 - multiStats.turnaroundTimes.p95 / singleStats.turnaroundTimes.p95) *
+      100
+    ).toFixed(1) +
+    "%";
+  console.log(
+    `${pad("p95 Turnaround (Tail)")} | ${padR(turnP95Single)} | ${padR(turnP95Multi)} | ${padR("🎯 " + turnDrop)}`,
+  );
 
   // Processing Time (Sharp)
   const procAvgSingle = singleStats.processTimes.avg + " ms";
   const procAvgMulti = multiStats.processTimes.avg + " ms";
-  console.log(`${pad("Avg Processing Time")} | ${padR(procAvgSingle)} | ${padR(procAvgMulti)} | ${padR("≈ identical")}`);
+  console.log(
+    `${pad("Avg Processing Time")} | ${padR(procAvgSingle)} | ${padR(procAvgMulti)} | ${padR("≈ identical")}`,
+  );
 
-  console.log("\n------------------------------------------------------------------");
+  console.log(
+    "\n------------------------------------------------------------------",
+  );
   console.log("WORKER LOAD DISTRIBUTION (Multi-Worker Test):");
   for (const [wName, count] of Object.entries(multiStats.workerDistribution)) {
-    console.log(`   • ${pad(wName, 22)}: processed ${count} jobs (${((count / BATCH_SIZE) * 100).toFixed(0)}%)`);
+    console.log(
+      `   • ${pad(wName, 22)}: processed ${count} jobs (${((count / BATCH_SIZE) * 100).toFixed(0)}%)`,
+    );
   }
-  console.log("==================================================================\n");
+  console.log(
+    "==================================================================\n",
+  );
 }
 
 runComparison().catch(console.error);
-
