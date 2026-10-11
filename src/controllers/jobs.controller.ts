@@ -91,11 +91,21 @@ export async function createJob(req: Request, res: Response) {
   }
 
   try {
-    // Phase 10: Backpressure & Bounded Queue Guard
-    // Note: In BullMQ, priority jobs are stored in 'prioritized' ZSET, not 'wait' list.
-    const waitingCount =
-      (await imageQueue.getWaitingCount()) +
-      (await imageQueue.getPrioritizedCount());
+    // Phase 10: Backpressure & Bounded Queue Guard with timeout circuit breaker
+    const waitingCount = await Promise.race([
+      (async () => {
+        const waiting = await imageQueue.getWaitingCount();
+        const prioritized = await imageQueue.getPrioritizedCount();
+        return waiting + prioritized;
+      })(),
+      new Promise<number>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Queue capacity check timeout (1500ms)")),
+          1500,
+        ),
+      ),
+    ]);
+
     const limit = priority === 1 ? MAX_VIP_QUEUE_CAPACITY : MAX_QUEUE_CAPACITY;
 
     if (waitingCount >= limit) {
@@ -121,26 +131,34 @@ export async function createJob(req: Request, res: Response) {
 
     const jobId = `job-${crypto.randomUUID()}`;
 
-    // 🚀 Push immediately to Redis (BullMQ handles 100,000+ ops/sec in RAM!)
-    await imageQueue.add(
-      "process-image",
-      {
-        id: jobId,
-        correlationId: req.correlationId,
-        type,
-        originalName,
-        image,
-        priority, // Included in payload for UI rendering
-        userId: req.user?.id || "anonymous",
-        userRole,
-        enqueuedAt: Date.now(),
-        createdAt: new Date().toISOString(),
-      },
-      {
-        jobId: jobId,
-        priority: priority, // BullMQ sorts Redis ZSET by this number!
-      },
-    );
+    // 🚀 Push to Redis with a 2000ms timeout circuit breaker
+    await Promise.race([
+      imageQueue.add(
+        "process-image",
+        {
+          id: jobId,
+          correlationId: req.correlationId,
+          type,
+          originalName,
+          image,
+          priority,
+          userId: req.user?.id || "anonymous",
+          userRole,
+          enqueuedAt: Date.now(),
+          createdAt: new Date().toISOString(),
+        },
+        {
+          jobId: jobId,
+          priority: priority,
+        },
+      ),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Queue enqueue timeout (2000ms)")),
+          2000,
+        ),
+      ),
+    ]);
 
     appendToLogFile(
       `[ENQUEUE] ${image}: New job ${jobId} buffered to Redis queue (${userRole.toUpperCase()} Tier, Priority ${priority})`,
@@ -157,8 +175,14 @@ export async function createJob(req: Request, res: Response) {
       correlationId: req.correlationId,
     });
   } catch (err: any) {
-    console.error("[API] Failed to enqueue job to Redis:", err);
-    return res.status(500).json({ error: "Queue error creating job" });
+    console.error("[API] Failed to enqueue job to Redis:", err.message || err);
+    res.setHeader("Retry-After", "5");
+    return res.status(503).json({
+      error: "QUEUE_UNAVAILABLE",
+      message:
+        "Job queue is temporarily degraded or unreachable. Please retry shortly.",
+      retryAfterSeconds: 5,
+    });
   }
 }
 

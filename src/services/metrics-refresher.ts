@@ -115,11 +115,23 @@ export async function prewarmMetricsCache(): Promise<void> {
  */
 export async function getCachedSystemMetrics(): Promise<SystemMetrics | null> {
   try {
-    // 1. Try Redis cache
-    const raw = await redisClient.get(CACHE_KEY);
+    // 1. Try Redis cache with a 500ms circuit breaker timeout
+    const raw = (await Promise.race([
+      redisClient.get(CACHE_KEY),
+      new Promise<null>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Redis cache read timeout (500ms)")),
+          500,
+        ),
+      ),
+    ])) as string | null;
+
     if (raw) {
       const data: SystemMetrics = JSON.parse(raw);
-      const dataAgeMs = Math.max(0, Date.now() - new Date(data.computedAt).getTime());
+      const dataAgeMs = Math.max(
+        0,
+        Date.now() - new Date(data.computedAt).getTime(),
+      );
       const isStale = dataAgeMs > 10000; // Flag stale if older than 10s
 
       const result: SystemMetrics = {
@@ -132,7 +144,10 @@ export async function getCachedSystemMetrics(): Promise<SystemMetrics | null> {
       return result;
     }
   } catch (err: any) {
-    logger.warn("METRICS_CACHE", `Redis read failed, attempting in-memory fallback: ${err.message}`);
+    logger.warn(
+      "METRICS_CACHE",
+      `Redis read failed, attempting in-memory fallback: ${err.message}`,
+    );
   }
 
   // 2. Point 1: Stale Fallback from local memory (never query DB directly!)
