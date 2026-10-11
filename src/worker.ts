@@ -8,6 +8,7 @@ import {
   markJobInProgress,
 } from "./db.js";
 import { IMAGE_QUEUE_NAME, redisConnection } from "./queue.js";
+import { logger } from "./logger.js";
 
 // classify error messages to determine if they are permanent (poison pill) or transient (retryable)
 function isPermanentError(errorMessage: string): boolean {
@@ -53,16 +54,24 @@ export function startBullWorker(workerName: string, concurrency: number = 2) {
         type = "thumbnail",
         originalName = image,
         priority = 5, // Default priority is 5 (lower number = higher priority)
+        correlationId,
       } = job.data;
 
       const attemptNum = job.attemptsMade + 1;
-      const tag = priority === 1 ? "⭐ [VIP]" : "[NORMAL]";
       const startedAt = Date.now();
       const enqueuedAt = job.timestamp || job.data.enqueuedAt || startedAt;
       const queueWaitMs = Math.max(0, startedAt - enqueuedAt);
 
-      console.log(
-        `[${workerName}] ${tag} Claimed job ${jobId} (${image}) [Priority ${priority}, Waited in queue: ${queueWaitMs}ms]...`,
+      logger.info(
+        "WORKER",
+        `Claimed job (${image}) [Priority ${priority}, Waited: ${queueWaitMs}ms]`,
+        {
+          correlationId,
+          jobId,
+          workerId: workerName,
+          priority,
+          queueWaitMs,
+        },
       );
       // 1. Idempotent upsert to Neon DB
       await insertJob(jobId, type, "in-progress", image, originalName);
@@ -88,6 +97,7 @@ export function startBullWorker(workerName: string, concurrency: number = 2) {
           priority,
           attempts: attemptNum,
           workerId: workerName,
+          correlationId,
           image: result?.imageLog || null,
         };
 
@@ -97,8 +107,16 @@ export function startBullWorker(workerName: string, concurrency: number = 2) {
           result?.outputThumbnail || "",
           jobMetrics,
         );
-        console.log(
-          `[${workerName}] Finished job ${jobId} successfully! (Wait: ${queueWaitMs}ms, Process: ${processingDurationMs}ms, Total: ${totalLatencyMs}ms)`,
+        logger.info(
+          "WORKER",
+          `Finished job successfully (Wait: ${queueWaitMs}ms, Process: ${processingDurationMs}ms, Total: ${totalLatencyMs}ms)`,
+          {
+            correlationId,
+            jobId,
+            workerId: workerName,
+            durationMs: processingDurationMs,
+            totalLatencyMs,
+          },
         );
         return result;
       } catch (err: any) {
@@ -115,19 +133,36 @@ export function startBullWorker(workerName: string, concurrency: number = 2) {
           priority,
           attempts: attemptNum,
           workerId: workerName,
+          correlationId,
           error: errorMsg,
         };
 
         // 🚨 Permanent Error (Poison Pill): Abort retries immediately!
         if (isPermanentError(errorMsg)) {
-          console.warn(
-            `[${workerName}] Permanent error detected on job ${jobId}. Aborting retries: "${errorMsg}"`,
+          logger.error(
+            "WORKER",
+            `Permanent error detected: "${errorMsg}". Aborting retries.`,
+            {
+              correlationId,
+              jobId,
+              workerId: workerName,
+              error: err,
+            },
           );
           await markJobFailed(jobId, `[DLQ] ${errorMsg}`, failureMetrics);
           throw new UnrecoverableError(errorMsg);
         }
 
-        // transient Error (Network/S3/DB blip): Let BullMQ retry with exponential backoff!
+        logger.warn(
+          "WORKER",
+          `Transient error on job, retrying: "${errorMsg}"`,
+          {
+            correlationId,
+            jobId,
+            workerId: workerName,
+            error: err,
+          },
+        );
         throw err;
       }
     },

@@ -35,14 +35,61 @@ export async function healthCheck(_req: Request, res: Response) {
   }
 }
 
-// GET /logs - Stream recent lines from jobs.log
-export function getLogsStream(_req: Request, res: Response) {
-  if (!fs.existsSync(LOG_FILE)) {
+import { LOG_FILE_PATH } from "../logger.js";
+
+// GET /logs - Stream and filter structured logs (supports ?correlationId=... & ?level=...)
+export function getLogsStream(req: Request, res: Response) {
+  const filePath = fs.existsSync(LOG_FILE_PATH) ? LOG_FILE_PATH : LOG_FILE;
+  if (!fs.existsSync(filePath)) {
     return res.status(200).json([]);
   }
   try {
-    const content = fs.readFileSync(LOG_FILE, "utf-8");
-    const lines = content.trim().split("\n").filter(Boolean).slice(-60);
+    const content = fs.readFileSync(filePath, "utf-8");
+    const rawLines = content.trim().split("\n").filter(Boolean);
+
+    // If it's structured NDJSONL
+    if (filePath.endsWith(".jsonl")) {
+      let entries = rawLines
+        .map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      const { correlationId, level, limit } = req.query;
+
+      if (correlationId) {
+        entries = entries.filter((e) => e.correlationId === correlationId);
+      }
+      if (level) {
+        entries = entries.filter(
+          (e) => String(e.level).toLowerCase() === String(level).toLowerCase(),
+        );
+      }
+
+      const maxLimit = parseInt(String(limit)) || 80;
+      entries = entries.slice(-maxLimit);
+
+      // If client requests raw json format
+      if (req.query.format === "json") {
+        return res.status(200).json(entries);
+      }
+
+      // Default formatted strings for web terminal
+      const formatted = entries.map((e) => {
+        const corrTag = e.correlationId ? ` [${e.correlationId}]` : "";
+        const dur = e.durationMs !== undefined ? ` (+${e.durationMs}ms)` : "";
+        const err = e.error ? ` [ERROR: ${e.error.message || e.error}]` : "";
+        return `[${e.timestamp}] [${e.level.toUpperCase()}] [${e.context}]${corrTag} ${e.message}${dur}${err}`;
+      });
+      return res.status(200).json(formatted);
+    }
+
+    // Fallback for legacy text logs
+    const lines = rawLines.slice(-60);
     return res.status(200).json(lines);
   } catch (err) {
     return res.status(500).json({ error: "Failed to read log file" });

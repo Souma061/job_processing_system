@@ -11,6 +11,7 @@
     "test:backpressure": "tsx src/backpressure-test.ts",
     "test:metrics": "tsx src/metrics-test.ts",
     "test:compare-workers": "tsx src/worker-comparison-test.ts",
+    "test:correlation": "tsx src/correlation-test.ts",
     "batch": "tsx src/batch-job.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

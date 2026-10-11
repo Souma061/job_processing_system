@@ -64,6 +64,7 @@ export async function createJob(req: Request, res: Response) {
       "process-image",
       {
         id: jobId,
+        correlationId: req.correlationId,
         type,
         originalName,
         image,
