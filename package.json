@@ -12,6 +12,8 @@
     "test:metrics": "tsx src/metrics-test.ts",
     "test:compare-workers": "tsx src/worker-comparison-test.ts",
     "test:correlation": "tsx src/correlation-test.ts",
+    "test:k6": "docker compose run --rm k6 run /scripts/integration-test.js",
+    "test:stress": "docker compose run --rm k6 run /scripts/stress-test.js",
     "batch": "tsx src/batch-job.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

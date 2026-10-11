@@ -26,6 +26,17 @@ services:
       redis:
         condition: service_healthy
 
+  k6:
+    image: grafana/k6:latest
+    container_name: job-processing-k6
+    profiles: ["test"]
+    volumes:
+      - ./k6:/scripts
+    environment:
+      - BASE_URL=http://host.docker.internal:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   redis_data:
   redisinsight_data:

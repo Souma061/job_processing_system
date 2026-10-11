@@ -1,9 +1,12 @@
 import crypto from "crypto";
 import { type Request, type Response } from "express";
+import fs from "fs";
+import path from "path";
 import {
   appendToLogFile,
   MAX_QUEUE_CAPACITY,
   MAX_VIP_QUEUE_CAPACITY,
+  UPLOADS_DIR,
 } from "../config/constants.js";
 import {
   deleteAllFinishedJobs,
@@ -13,19 +16,78 @@ import {
 } from "../db.js";
 import { imageQueue } from "../queue.js";
 import { deleteFileFromS3, getPresignedDownloadUrl } from "../s3.js";
+import {
+  validateImageMagicBytes,
+  validatePathSafety,
+} from "../utils/security.js";
 
 // POST /jobs - Enqueue a new job to BullMQ
 export async function createJob(req: Request, res: Response) {
-  const image = req.file ? req.file.filename : req.body.image;
+  const rawImage = req.file ? req.file.filename : req.body.image;
   const type = req.body.type || "thumbnail";
-  const originalName = req.file ? req.file.originalname : image;
-  const priority = parseInt(req.body.priority) || 5; // Default priority is 5 (lower number = higher priority)
+  const originalName = req.file ? req.file.originalname : rawImage;
 
-  if (!image) {
+  if (!rawImage) {
     return res.status(400).json({
       error:
         "No image provided. Please select an image file or provide an image name.",
     });
+  }
+
+  // 1. Phase 19: Path Traversal Defense
+  const pathCheck = validatePathSafety(rawImage);
+  if (!pathCheck.valid) {
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {}
+    }
+    return res.status(400).json({
+      error: "PATH_TRAVERSAL_DETECTED",
+      message: pathCheck.reason || "Invalid image filename.",
+    });
+  }
+  const image = pathCheck.safeName!;
+
+  // 2. Phase 19: Magic Byte File Type Inspection
+  const localFilePath = path.resolve(UPLOADS_DIR, image);
+  if (fs.existsSync(localFilePath)) {
+    const magicResult = validateImageMagicBytes(localFilePath);
+    if (!magicResult.valid) {
+      if (req.file) {
+        try {
+          fs.unlinkSync(localFilePath);
+        } catch {}
+      }
+      return res.status(400).json({
+        error: "INVALID_FILE_SIGNATURE",
+        message: magicResult.error || "File failed magic-byte validation.",
+      });
+    }
+  }
+
+  // 3. Phase 19: Tier-Enforced VIP Authorization
+  const requestedPriority = parseInt(req.body.priority);
+  const userRole = req.user?.role || "standard";
+  let priority = 5;
+
+  if (userRole === "vip") {
+    // VIP tier automatically receives expedited Priority 1
+    priority = 1;
+  } else if (userRole === "admin") {
+    // Admin tier can request any priority
+    priority = !isNaN(requestedPriority) ? requestedPriority : 5;
+  } else {
+    // Standard tier: Explicit attempt to bypass queue with priority 1 is forbidden
+    if (requestedPriority === 1) {
+      return res.status(403).json({
+        error: "FORBIDDEN_TIER",
+        message:
+          "VIP priority (1) requires a VIP tier API Key. Standard tier accounts cannot request expedited priority.",
+        tier: userRole,
+      });
+    }
+    priority = 5;
   }
 
   try {
@@ -69,6 +131,8 @@ export async function createJob(req: Request, res: Response) {
         originalName,
         image,
         priority, // Included in payload for UI rendering
+        userId: req.user?.id || "anonymous",
+        userRole,
         enqueuedAt: Date.now(),
         createdAt: new Date().toISOString(),
       },
@@ -79,12 +143,19 @@ export async function createJob(req: Request, res: Response) {
     );
 
     appendToLogFile(
-      `[ENQUEUE] ${image}: New job ${jobId} buffered to Redis queue`,
+      `[ENQUEUE] ${image}: New job ${jobId} buffered to Redis queue (${userRole.toUpperCase()} Tier, Priority ${priority})`,
     );
     console.log(
-      `[API] Enqueued new job ${jobId} to Redis queue for image "${image}"`,
+      `[API] Enqueued new job ${jobId} to Redis queue for image "${image}" (${userRole.toUpperCase()} Tier, Priority ${priority})`,
     );
-    return res.status(201).json({ id: jobId, status: "pending", image });
+    return res.status(201).json({
+      id: jobId,
+      status: "pending",
+      image,
+      priority,
+      tier: userRole,
+      correlationId: req.correlationId,
+    });
   } catch (err: any) {
     console.error("[API] Failed to enqueue job to Redis:", err);
     return res.status(500).json({ error: "Queue error creating job" });
@@ -92,9 +163,10 @@ export async function createJob(req: Request, res: Response) {
 }
 
 // GET /jobs - Fetch all jobs and sign presigned S3 URLs
-export async function getAllJobsHandler(_req: Request, res: Response) {
+export async function getAllJobsHandler(req: Request, res: Response) {
   try {
-    const rows = await getAllJobs();
+    const limit = parseInt(req.query.limit as string) || 50;
+    const rows = await getAllJobs(limit);
     const formatted = await Promise.all(
       rows.map(async (r) => {
         let thumbnail = r.thumbnail || null;

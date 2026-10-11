@@ -146,11 +146,17 @@ export async function getJobById(id: string): Promise<JobRow | null> {
   return res.rows[0] || null;
 }
 
-// 8. Get all jobs (newest first)
-export async function getAllJobs(): Promise<JobRow[]> {
-  const query = `SELECT * FROM jobs ORDER BY created_at DESC;`;
-  const res = await pool.query(query);
+// 8. Get all jobs (newest first, defaulted to 50 for high-load performance)
+export async function getAllJobs(limit: number = 50): Promise<JobRow[]> {
+  const query = `SELECT * FROM jobs ORDER BY created_at DESC LIMIT $1;`;
+  const res = await pool.query(query, [limit]);
   return res.rows;
+}
+
+// 8b. High-performance scalar count for health checks
+export async function getTotalJobsCount(): Promise<number> {
+  const res = await pool.query("SELECT COUNT(*) AS total FROM jobs;");
+  return parseInt(res.rows[0]?.total || "0", 10);
 }
 
 // 9. Startup Crash Recovery: Reset in-progress to pending, return all pending jobs

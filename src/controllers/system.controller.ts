@@ -5,13 +5,13 @@ import {
   MAX_QUEUE_CAPACITY,
   MAX_VIP_QUEUE_CAPACITY,
 } from "../config/constants.js";
-import { getAllJobs } from "../db.js";
+import { getTotalJobsCount } from "../db.js";
 import { imageQueue } from "../queue.js";
 
 // GET /health - Server, database, and queue health status
 export async function healthCheck(_req: Request, res: Response) {
   try {
-    const jobs = await getAllJobs();
+    const totalJobs = await getTotalJobsCount();
     const waiting = await imageQueue.getWaitingCount();
     const prioritized = await imageQueue.getPrioritizedCount();
     const waitingCount = waiting + prioritized;
@@ -27,7 +27,7 @@ export async function healthCheck(_req: Request, res: Response) {
       maxCapacity: MAX_QUEUE_CAPACITY,
       maxVipCapacity: MAX_VIP_QUEUE_CAPACITY,
       backpressureActive: waitingCount >= MAX_QUEUE_CAPACITY,
-      totalJobs: jobs.length,
+      totalJobs,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
