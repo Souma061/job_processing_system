@@ -14,6 +14,29 @@ services:
       timeout: 3s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: job-processing-system:latest
+    container_name: job-processing-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./uploads:/app/uploads
+      - ./output:/app/output
+    depends_on:
+      redis:
+        condition: service_healthy
+
   redis-insight:
     image: redis/redisinsight:latest
     container_name: job-processing-redisinsight
@@ -33,12 +56,13 @@ services:
     volumes:
       - ./k6:/scripts
     environment:
-      - BASE_URL=http://host.docker.internal:3000
+      - BASE_URL=http://api:3000
       - API_KEY_STANDARD=${API_KEY_STANDARD:-key_std_prod_123}
       - API_KEY_VIP=${API_KEY_VIP:-key_vip_prod_456}
       - API_KEY_ADMIN=${API_KEY_ADMIN:-key_admin_prod_789}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   redis_data:

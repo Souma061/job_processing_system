@@ -22,12 +22,22 @@ function isPermanentError(errorMessage: string): boolean {
   return permanentPatterns.some((pattern) => pattern.test(errorMessage));
 }
 
+import fs from "node:fs";
+
 function runCpuJobOnThread(jobId: string, image: string): Promise<any> {
   return new Promise((resolve, reject) => {
-    const workerPath = path.resolve("src/cpu-worker.ts");
+    const isProduction =
+      process.env.NODE_ENV === "production" ||
+      !fs.existsSync(path.resolve("src/cpu-worker.ts"));
+    const workerPath = isProduction
+      ? path.resolve("dist/cpu-worker.js")
+      : path.resolve("src/cpu-worker.ts");
+
+    const execArgv = isProduction ? [] : ["--import", "tsx"];
+
     const thread = new ThreadWorker(workerPath, {
       workerData: { jobId, image },
-      execArgv: ["--import", "tsx"],
+      execArgv,
     });
     thread.on("message", (msg) => {
       if (msg.status === "completed") {

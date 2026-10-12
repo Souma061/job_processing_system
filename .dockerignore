@@ -1,0 +1,14 @@
+node_modules
+dist
+logs
+uploads/*
+!uploads/.gitkeep
+output/*
+!output/.gitkeep
+.git
+.github
+.env
+.env.local
+.DS_Store
+*.log
+scratch
