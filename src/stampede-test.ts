@@ -1,7 +1,8 @@
+import "dotenv/config";
 import { calculatePercentile } from "./metrics.js";
 
 const SERVER_URL = "http://localhost:3000";
-const API_KEY = "key_std_prod_123";
+const API_KEY = process.env.API_KEY_STANDARD || "key_std_prod_123";
 
 // Configurable Stampede Parameters
 const TOTAL_REQUESTS = 10000; // Total stampede requests

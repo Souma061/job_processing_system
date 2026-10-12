@@ -34,6 +34,9 @@ services:
       - ./k6:/scripts
     environment:
       - BASE_URL=http://host.docker.internal:3000
+      - API_KEY_STANDARD=${API_KEY_STANDARD:-key_std_prod_123}
+      - API_KEY_VIP=${API_KEY_VIP:-key_vip_prod_456}
+      - API_KEY_ADMIN=${API_KEY_ADMIN:-key_admin_prod_789}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

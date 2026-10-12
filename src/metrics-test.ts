@@ -1,3 +1,4 @@
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -8,6 +9,8 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 const SERVER_URL = "http://localhost:3000";
+const API_KEY_STD = process.env.API_KEY_STANDARD || "key_std_prod_123";
+const API_KEY_VIP = process.env.API_KEY_VIP || "key_vip_prod_456";
 
 interface ColorItem {
   name: string;
@@ -73,7 +76,7 @@ async function runMetricsTest() {
     const filename = await createTestImage(item.name, item.r, item.g, item.b);
     const tag = item.priority === 1 ? "⭐ VIP" : "Normal";
 
-    const apiKey = item.priority === 1 ? "key_vip_prod_456" : "key_std_prod_123";
+    const apiKey = item.priority === 1 ? API_KEY_VIP : API_KEY_STD;
     const res = await fetch(`${SERVER_URL}/jobs`, {
       method: "POST",
       headers: {
@@ -105,7 +108,7 @@ async function runMetricsTest() {
     await new Promise((r) => setTimeout(r, 1000));
     for (const id of Array.from(pending)) {
       const res = await fetch(`${SERVER_URL}/jobs/${id}`, {
-        headers: { "X-API-Key": "key_vip_prod_456" },
+        headers: { "X-API-Key": API_KEY_VIP },
       });
       if (res.ok) {
         const job = (await res.json()) as any;
@@ -125,7 +128,7 @@ async function runMetricsTest() {
   // 3. Query GET /metrics
   console.log(`\n🔍 Step 3: Fetching aggregate telemetry from GET /metrics...`);
   const metricsRes = await fetch(`${SERVER_URL}/metrics`, {
-    headers: { "X-API-Key": "key_vip_prod_456" },
+    headers: { "X-API-Key": API_KEY_VIP },
   });
   if (!metricsRes.ok) {
     console.error(`❌ Failed to retrieve /metrics: ${metricsRes.status} ${metricsRes.statusText}`);

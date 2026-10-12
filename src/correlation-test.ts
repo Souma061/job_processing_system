@@ -1,3 +1,4 @@
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -5,6 +6,8 @@ import { LOG_FILE_PATH } from "./logger.js";
 
 const SERVER_URL = "http://localhost:3000";
 const UPLOADS_DIR = path.resolve("uploads");
+const API_KEY_STD = process.env.API_KEY_STANDARD || "key_std_prod_123";
+const API_KEY_ADMIN = process.env.API_KEY_ADMIN || "key_admin_prod_789";
 
 async function createTestImage(name: string) {
   const filePath = path.join(UPLOADS_DIR, name);
@@ -56,7 +59,7 @@ async function runCorrelationTest() {
   for (const item of testRequests) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "X-API-Key": "key_std_prod_123",
+      "X-API-Key": API_KEY_STD,
     };
     if (item.customCorrId) {
       headers["X-Correlation-Id"] = item.customCorrId;
@@ -92,7 +95,7 @@ async function runCorrelationTest() {
   let parsedLogs: any[] = [];
   try {
     const logRes = await fetch(`${SERVER_URL}/logs?format=json&limit=500`, {
-      headers: { "X-API-Key": "key_admin_prod_789" },
+      headers: { "X-API-Key": API_KEY_ADMIN },
     });
     if (logRes.ok) {
       parsedLogs = (await logRes.json()) as any[];

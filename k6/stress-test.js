@@ -36,8 +36,8 @@ export const options = {
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://host.docker.internal:3000';
-const KEY_STD = 'key_std_prod_123';
-const KEY_VIP = 'key_vip_prod_456';
+const KEY_STD = __ENV.API_KEY_STANDARD || 'key_std_prod_123';
+const KEY_VIP = __ENV.API_KEY_VIP || 'key_vip_prod_456';
 
 export default function () {
   const rand = Math.random();

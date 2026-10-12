@@ -1,5 +1,11 @@
 import { NextFunction, Request, Response } from "express";
-import { API_KEYS, type ApiKeyUser } from "../config/constants.js";
+import {
+  API_KEYS,
+  API_KEY_ADMIN,
+  API_KEY_STANDARD,
+  API_KEY_VIP,
+  type ApiKeyUser,
+} from "../config/constants.js";
 import { logger } from "../logger.js";
 
 declare global {
@@ -57,7 +63,7 @@ export function apiKeyAuthMiddleware(
     return res.status(401).json({
       error: "UNAUTHORIZED",
       message: "API Key required. Please provide a valid 'X-API-Key' header.",
-      help: "Use header 'X-API-Key: key_std_prod_123' (Standard), 'key_vip_prod_456' (VIP), or 'key_admin_prod_789' (Admin).",
+      help: `Use header 'X-API-Key: ${API_KEY_STANDARD}' (Standard), '${API_KEY_VIP}' (VIP), or '${API_KEY_ADMIN}' (Admin).`,
     });
   }
 
