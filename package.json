@@ -17,6 +17,7 @@
     "test:k6": "docker compose run --rm k6 run /scripts/integration-test.js",
     "test:stress": "docker compose --profile test run --rm k6 run /scripts/stress-test.js",
     "test:user": "docker compose --profile test run --rm k6 run /scripts/real-user-test.js",
+    "test:challenge": "docker compose --profile test run --rm k6 run /scripts/twelve-dollar-load.js",
     "test:chaos": "powershell -ExecutionPolicy Bypass -File ./run-k6-chaos.ps1",
     "batch": "tsx src/batch-job.ts",
     "docker:up": "docker compose up -d",
