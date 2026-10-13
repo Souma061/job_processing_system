@@ -495,14 +495,16 @@
   <div class="container">
     <header>
       <div>
-        <h1>🖼️ Job Processing Dashboard</h1>
+        <h1>🖼️ Job Processing Dashboard Monitor</h1>
         <p class="subtitle">Live thumbnail generator with Sharp C++ Worker Threads & Observability Logs</p>
       </div>
       <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
         <span style="font-size: 0.85rem; color: var(--success); font-weight: 600;">● Live Polling (1.5s)</span>
-        <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--card-bg); padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);">
+        <div
+          style="display: flex; align-items: center; gap: 0.4rem; background: var(--card-bg); padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);">
           <span style="font-size: 0.8rem; color: var(--text-muted);">🔑 Auth Tier:</span>
-          <select id="auth-key-select" style="background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.8rem; cursor: pointer;">
+          <select id="auth-key-select"
+            style="background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.8rem; cursor: pointer;">
             <option value="key_vip_prod_456" selected>⭐ VIP Client (key_vip)</option>
             <option value="key_std_prod_123">Standard User (key_std)</option>
             <option value="key_admin_prod_789">👑 Admin (key_admin)</option>
@@ -547,7 +549,8 @@
     <div class="panel" style="margin-bottom: 2rem; border: 1px solid #3b82f6; background: rgba(30, 41, 59, 0.7);">
       <h2 style="color: #60a5fa; font-size: 1.1rem; margin-bottom: 1rem;">
         <span>📊 Phase 12: System Latency Distributions & Throughput</span>
-        <span id="metric-updated-at" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">Live Polling</span>
+        <span id="metric-updated-at" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">Live
+          Polling</span>
       </h2>
       <div class="stats-bar" style="margin-bottom: 1rem;">
         <div class="stat-card">
@@ -575,8 +578,10 @@
       </div>
       <!-- Timing Split & VIP Impact -->
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-        <div style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border);">
-          <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Average Timing Split</div>
+        <div
+          style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border);">
+          <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Average
+            Timing Split</div>
           <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.9rem;">
             <span>⏳ Queue Wait Time:</span>
             <strong id="metric-avg-wait" style="color: #cbd5e1;">0 ms</strong>
@@ -586,8 +591,10 @@
             <strong id="metric-avg-process" style="color: #cbd5e1;">0 ms</strong>
           </div>
         </div>
-        <div style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border);">
-          <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">VIP Priority Scheduling Impact</div>
+        <div
+          style="background: rgba(15, 23, 42, 0.6); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--border);">
+          <div class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">VIP
+            Priority Scheduling Impact</div>
           <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.9rem;">
             <span>⭐ VIP Wait: <strong id="metric-vip-wait" style="color: #facc15;">0 ms</strong></span>
             <span>⏳ Normal Wait: <strong id="metric-norm-wait" style="color: #94a3b8;">0 ms</strong></span>
