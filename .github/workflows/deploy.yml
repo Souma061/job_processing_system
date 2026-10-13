@@ -1,0 +1,77 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ============================================================================
+  # 1. CI Stage: Validate Types, Code Quality & Docker Build
+  # ============================================================================
+  ci:
+    name: Lint, Test & Build Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run TypeScript Typecheck (Lint)
+        run: pnpm run lint
+
+      - name: Run TypeScript Build
+        run: pnpm run build
+
+      - name: Validate Multi-Stage Dockerfile Build
+        run: docker build -t job-processing-system:ci-check .
+
+  # ============================================================================
+  # 2. CD Stage: Automated Deployment to AWS EC2
+  # ============================================================================
+  deploy:
+    name: Deploy to AWS EC2
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Execute Remote SSH Deployment on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            echo "🚀 Deploying latest code to EC2..."
+            cd ~/job_processing_system
+
+            # 1. Pull latest code from GitHub main
+            git pull origin main
+
+            # 2. Rebuild and restart the API container without interrupting Redis
+            docker compose up -d --build api
+
+            # 3. Wait for the container to start and verify healthcheck
+            echo "⏳ Verifying container health..."
+            sleep 8
+            curl -f http://127.0.0.1:3000/health
+
+            echo "✅ Deployment successful and verified!"
+
